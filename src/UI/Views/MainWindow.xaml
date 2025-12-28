@@ -1,0 +1,11 @@
+<Window x:Class="MQReceiver.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:lvc="clr-namespace:LiveCharts.Wpf;assembly=LiveCharts.Wpf"
+        Title="股票数据管理系统" Height="600" Width="800"
+        WindowStartupLocation="CenterScreen"
+        Visibility="Collapsed">
+    <Grid>
+        <!-- 主窗口默认隐藏，由Program.cs控制显示菜单 -->
+    </Grid>
+</Window>

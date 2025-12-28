@@ -1,0 +1,23 @@
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.cache
+
+# Build results
+bin/
+obj/
+
+# NuGet packages (can be restored)
+packages/
+
+# IDE settings
+.vscode/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Logs and temp files
+*.log
+*.tmp

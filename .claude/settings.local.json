@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(dotnet build:*)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" MQReceiver.csproj /t:Build /p:Configuration=Debug)",
+      "Bash(where msbuild:*)",
+      "Bash(powershell:*)",
+      "Bash(wc:*)",
+      "Bash(if not exist \"f:\\\\dsfr\\\\mqq\\\\Repositories\" mkdir \"f:\\\\dsfr\\\\mqq\\\\Repositories\")",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" MQReceiver.csproj /t:Build /p:Configuration=Debug /v:minimal)",
+      "Bash(findstr:*)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" f:dsfrmqqMQReceiver.csproj /t:Build /p:Configuration=Debug /v:minimal)",
+      "Bash(cmd /c 'dir \"\"C:\\\\Program Files\\\\Microsoft Visual Studio\"\" /s /b 2>nul | findstr /i msbuild.exe')",
+      "Bash(del \"f:\\\\dsfr\\\\mqq\\\\DatabaseConnectionHelper.cs\")",
+      "Bash(del \"f:\\\\dsfr\\\\mqq\\\\RedisHelper.cs\")",
+      "Bash(tree:*)",
+      "Bash(del \"f:\\\\dsfr\\\\mqq\\\\KDCalculator.cs\")",
+      "Bash(del \"f:\\\\dsfr\\\\mqq\\\\ExRightsAdjustmentCalculator.cs\")",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"f:\\\\dsfr\\\\mqq\\\\MQReceiver.csproj\" /t:Build /p:Configuration=Debug /v:minimal)",
+      "Bash(del \"f:\\\\dsfr\\\\mqq\\\\StockChartWindow.xaml\")",
+      "Bash(del \"f:\\\\dsfr\\\\mqq\\\\StockChartWindow.xaml.cs\")",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(cmd /c \"dir /ad /b F:\\\\dsfr\\\\mqqc\\\\src\")",
+      "Bash(cmd /c \"dir /ad /b F:\\\\dsfr\\\\mqq\")",
+      "Bash(cmd /c '\"\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\"\" \"\"f:\\\\dsfr\\\\mqq\\\\MQReceiver.csproj\"\" /t:Build /p:Configuration=Debug /v:minimal')",
+      "Bash(cmd /c \"dir /s /b \"\"C:\\\\Program Files\\\\Microsoft Visual Studio\"\" 2>nul | findstr /i MSBuild.exe | findstr Current\")",
+      "Bash(cmd /c \"where dotnet\")",
+      "Bash(cmd /c \"for /r \"\"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\"\" %i in \\(MSBuild.exe\\) do @if exist \"\"%i\"\" echo %i\")",
+      "Bash(cmd /c:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

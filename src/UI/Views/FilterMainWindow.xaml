@@ -1,0 +1,699 @@
+<Window x:Class="MQReceiver.Views.FilterMainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="股票过滤结果 - 主面板" Height="800" Width="1400"
+        WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
+        Background="#1E1E1E">
+    <Grid Background="#1E1E1E">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏 -->
+        <Border Grid.Row="0" Background="#252526" Padding="12" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="股票过滤结果" FontSize="18" FontWeight="SemiBold" Foreground="#D4D4D4" Margin="0,0,20,0"/>
+                <TextBlock Text="{Binding LastUpdateTime, StringFormat='最后更新: {0:yyyy-MM-dd HH:mm:ss}'}"
+                           FontSize="11" Foreground="#858585" VerticalAlignment="Center"/>
+
+                <!-- MQ服务按钮 -->
+                <Button x:Name="MQServiceButton" Content="启动MQ服务" Margin="20,0,0,0"
+                        Click="MQServiceButton_Click" Width="100" Height="32"
+                        Background="#2D7D46" Foreground="#FFFFFF" BorderBrush="#3D8D56">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="#2D7D46"/>
+                            <Setter Property="Foreground" Value="#FFFFFF"/>
+                            <Setter Property="BorderBrush" Value="#3D8D56"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#3D9D56"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <!-- MQ状态指示器 -->
+                <Ellipse x:Name="MQStatusIndicator" Width="10" Height="10" Fill="#6E6E6E" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="MQStatusText" Text="MQ未启动" FontSize="10" Foreground="#858585" VerticalAlignment="Center" Margin="4,0,0,0"/>
+
+                <!-- 分隔符 -->
+                <Rectangle Width="1" Height="20" Fill="#3F3F46" Margin="15,0,15,0"/>
+
+                <!-- 过滤服务按钮 -->
+                <Button x:Name="FilterServiceButton" Content="启动过滤" Margin="0,0,0,0"
+                        Click="FilterServiceButton_Click" Width="100" Height="32"
+                        Background="#7D5D2D" Foreground="#FFFFFF" BorderBrush="#8D6D3D">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="#7D5D2D"/>
+                            <Setter Property="Foreground" Value="#FFFFFF"/>
+                            <Setter Property="BorderBrush" Value="#8D6D3D"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#9D7D4D"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <!-- 过滤状态指示器 -->
+                <Ellipse x:Name="FilterStatusIndicator" Width="10" Height="10" Fill="#6E6E6E" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="FilterStatusText" Text="过滤未启动" FontSize="10" Foreground="#858585" VerticalAlignment="Center" Margin="4,0,0,0"/>
+
+                <!-- 分隔符 -->
+                <Rectangle Width="1" Height="20" Fill="#3F3F46" Margin="15,0,15,0"/>
+
+                <!-- 缓存状态显示 -->
+                <TextBlock x:Name="CacheCountText" Text="缓存数据: 0 只股票" FontSize="10" Foreground="#858585" VerticalAlignment="Center"/>
+                <TextBlock x:Name="CacheUpdateTimeText" Text="更新时间: 从未更新" FontSize="10" Foreground="#6E6E6E" VerticalAlignment="Center" Margin="10,0,0,0"/>
+
+                <!-- 分隔符 -->
+                <Rectangle Width="1" Height="20" Fill="#3F3F46" Margin="15,0,15,0"/>
+
+                <Button Content="刷新" Margin="0,0,0,0"
+                        Click="RefreshButton_Click" Width="80" Height="32"
+                        Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="#3F3F46"/>
+                            <Setter Property="Foreground" Value="#D4D4D4"/>
+                            <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#4A4A4A"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <Button Content="关闭" HorizontalAlignment="Right" Margin="10,0,0,0"
+                        Click="CloseButton_Click" Width="60" Height="32"
+                        Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="#3F3F46"/>
+                            <Setter Property="Foreground" Value="#D4D4D4"/>
+                            <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                            <Setter Property="BorderThickness" Value="1"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#4A4A4A"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- 三个面板（Flow布局） -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                      Background="#1E1E1E">
+            <WrapPanel Orientation="Horizontal"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Top"
+                      Margin="15">
+
+                <!-- 面板1：条件1 - 金叉 -->
+                <Border BorderBrush="#4A9EFF" BorderThickness="1.5"
+                        CornerRadius="4"
+                        Margin="8"
+                        Padding="12"
+                        MinWidth="400"
+                        MaxWidth="450"
+                        Background="#2D2D30">
+                    <StackPanel>
+                        <TextBlock Text="条件1：周K、月K、季K 金叉"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#B8B8B8"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding Condition1Count, StringFormat='共 {0} 只股票'}"
+                                   FontSize="11"
+                                   Foreground="#6E6E6E"
+                                   Margin="0,0,0,8"/>
+
+                        <!-- 过滤条件设置 -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Button Content="设置" Width="50" Height="24" Click="Condition1Settings_Click"
+                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="1" CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <TextBlock Text="{Binding Condition1SettingsDisplay}" FontSize="11" Foreground="#4A9EFF" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DataGrid ItemsSource="{Binding Condition1Results}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  GridLinesVisibility="All"
+                                  HeadersVisibility="Column"
+                                  CanUserResizeColumns="True"
+                                  CanUserSortColumns="True"
+                                  MaxHeight="500"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick"
+                                  Tag="1"
+                                  Background="#2D2D30"
+                                  Foreground="#D4D4D4"
+                                  BorderBrush="#3F3F46"
+                                  RowBackground="#2D2D30"
+                                  AlternatingRowBackground="#252526"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  >
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#3F3F46"/>
+                                    <Setter Property="Foreground" Value="#B8B8B8"/>
+                                    <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="#3F3F46"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,4"/>
+                                    <Setter Property="Foreground" Value="#D4D4D4"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="#3F3F46"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.CellStyle>
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Width="*" MinWidth="120">
+                                    <DataGridTemplateColumn.Header>
+                                        <TextBlock Text="股票名称" HorizontalAlignment="Center"/>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Cursor="Hand"
+                                                       MouseLeftButtonDown="StockName_MouseLeftButtonDown"
+                                                       Tag="{Binding StockCode}">
+                                                <Hyperlink Foreground="#6A9EFF">
+                                                    <Run Text="{Binding StockName}"/>
+                                                </Hyperlink>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Width="80">
+                                    <DataGridTextColumn.Header>
+                                        <TextBlock Text="代码" HorizontalAlignment="Center"/>
+                                    </DataGridTextColumn.Header>
+                                    <DataGridTextColumn.Binding>
+                                        <Binding Path="StockCode"/>
+                                    </DataGridTextColumn.Binding>
+                                </DataGridTextColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition1WeeklyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
+                                                       Foreground="{Binding WeeklyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition1MonthlyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
+                                                       Foreground="{Binding MonthlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition1QuarterlyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
+                                                       Foreground="{Binding QuarterlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 面板2：条件2 - 周K>月K>季K -->
+                <Border BorderBrush="#FF6B6B" BorderThickness="1.5"
+                        CornerRadius="4"
+                        Margin="8"
+                        Padding="12"
+                        MinWidth="400"
+                        MaxWidth="450"
+                        Background="#2D2D30">
+                    <StackPanel>
+                        <TextBlock Text="条件2：周K>月K>季K（不含金叉）"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#B8B8B8"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding Condition2Count, StringFormat='共 {0} 只股票'}"
+                                   FontSize="11"
+                                   Foreground="#6E6E6E"
+                                   Margin="0,0,0,8"/>
+
+                        <!-- 过滤条件设置 -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Button Content="设置" Width="50" Height="24" Click="Condition2Settings_Click"
+                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="1" CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <TextBlock Text="{Binding Condition2SettingsDisplay}" FontSize="11" Foreground="#FF6B6B" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DataGrid ItemsSource="{Binding Condition2Results}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  GridLinesVisibility="All"
+                                  HeadersVisibility="Column"
+                                  CanUserResizeColumns="True"
+                                  CanUserSortColumns="True"
+                                  MaxHeight="500"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick"
+                                  Tag="2"
+                                  Background="#2D2D30"
+                                  Foreground="#D4D4D4"
+                                  BorderBrush="#3F3F46"
+                                  RowBackground="#2D2D30"
+                                  AlternatingRowBackground="#252526"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  >
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#3F3F46"/>
+                                    <Setter Property="Foreground" Value="#B8B8B8"/>
+                                    <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="#3F3F46"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,4"/>
+                                    <Setter Property="Foreground" Value="#D4D4D4"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="#3F3F46"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.CellStyle>
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Width="*" MinWidth="120">
+                                    <DataGridTemplateColumn.Header>
+                                        <TextBlock Text="股票名称" HorizontalAlignment="Center"/>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Cursor="Hand"
+                                                       MouseLeftButtonDown="StockName_MouseLeftButtonDown"
+                                                       Tag="{Binding StockCode}">
+                                                <Hyperlink Foreground="#6A9EFF">
+                                                    <Run Text="{Binding StockName}"/>
+                                                </Hyperlink>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Width="80">
+                                    <DataGridTextColumn.Header>
+                                        <TextBlock Text="代码" HorizontalAlignment="Center"/>
+                                    </DataGridTextColumn.Header>
+                                    <DataGridTextColumn.Binding>
+                                        <Binding Path="StockCode"/>
+                                    </DataGridTextColumn.Binding>
+                                </DataGridTextColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition2WeeklyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
+                                                       Foreground="{Binding WeeklyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition2MonthlyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
+                                                       Foreground="{Binding MonthlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition2QuarterlyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
+                                                       Foreground="{Binding QuarterlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 面板3：条件3 - 月K>季K OR 周K<月K -->
+                <Border BorderBrush="#4ECDC4" BorderThickness="1.5"
+                        CornerRadius="4"
+                        Margin="8"
+                        Padding="12"
+                        MinWidth="400"
+                        MaxWidth="450"
+                        Background="#2D2D30">
+                    <StackPanel>
+                        <TextBlock Text="条件3：月K&gt;季K OR 周K&lt;月K"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#B8B8B8"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding Condition3Count, StringFormat='共 {0} 只股票'}"
+                                   FontSize="11"
+                                   Foreground="#6E6E6E"
+                                   Margin="0,0,0,8"/>
+
+                        <!-- 过滤条件设置 -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <Button Content="设置" Width="50" Height="24" Click="Condition3Settings_Click"
+                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="1" CornerRadius="3">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <TextBlock Text="{Binding Condition3SettingsDisplay}" FontSize="11" Foreground="#4ECDC4" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DataGrid ItemsSource="{Binding Condition3Results}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  GridLinesVisibility="All"
+                                  HeadersVisibility="Column"
+                                  CanUserResizeColumns="True"
+                                  CanUserSortColumns="True"
+                                  MaxHeight="500"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick"
+                                  Tag="3"
+                                  Background="#2D2D30"
+                                  Foreground="#D4D4D4"
+                                  BorderBrush="#3F3F46"
+                                  RowBackground="#2D2D30"
+                                  AlternatingRowBackground="#252526"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  >
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#3F3F46"/>
+                                    <Setter Property="Foreground" Value="#B8B8B8"/>
+                                    <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="#3F3F46"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,4"/>
+                                    <Setter Property="Foreground" Value="#D4D4D4"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="#3F3F46"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.CellStyle>
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Width="*" MinWidth="120">
+                                    <DataGridTemplateColumn.Header>
+                                        <TextBlock Text="股票名称" HorizontalAlignment="Center"/>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Cursor="Hand"
+                                                       MouseLeftButtonDown="StockName_MouseLeftButtonDown"
+                                                       Tag="{Binding StockCode}">
+                                                <Hyperlink Foreground="#6A9EFF">
+                                                    <Run Text="{Binding StockName}"/>
+                                                </Hyperlink>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Width="80">
+                                    <DataGridTextColumn.Header>
+                                        <TextBlock Text="代码" HorizontalAlignment="Center"/>
+                                    </DataGridTextColumn.Header>
+                                    <DataGridTextColumn.Binding>
+                                        <Binding Path="StockCode"/>
+                                    </DataGridTextColumn.Binding>
+                                </DataGridTextColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition3WeeklyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
+                                                       Foreground="{Binding WeeklyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition3MonthlyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
+                                                       Foreground="{Binding MonthlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Width="70">
+                                    <DataGridTemplateColumn.Header>
+                                        <StackPanel>
+                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Condition3QuarterlyKDefaultMin, StringFormat='({0})'}"
+                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </DataGridTemplateColumn.Header>
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
+                                                       Foreground="{Binding QuarterlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+            </WrapPanel>
+        </ScrollViewer>
+
+        <!-- MQ日志面板 -->
+        <Border Grid.Row="2" Background="#252526" BorderBrush="#3F3F46" BorderThickness="0,1,0,0"
+                x:Name="LogPanel" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="150"/>
+                </Grid.RowDefinitions>
+
+                <!-- 日志标题栏 -->
+                <Border Grid.Row="0" Background="#2D2D30" Padding="8,4">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="MQ服务日志" FontSize="12" FontWeight="SemiBold" Foreground="#B8B8B8"/>
+                        <Button Content="清空" Margin="20,0,0,0" Click="ClearLogButton_Click"
+                                Width="50" Height="22" FontSize="10"
+                                Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="1" CornerRadius="2">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button Content="隐藏" Margin="8,0,0,0" Click="HideLogButton_Click"
+                                Width="50" Height="22" FontSize="10"
+                                Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="1" CornerRadius="2">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
+                </Border>
+
+                <!-- 日志内容 -->
+                <TextBox x:Name="LogTextBox" Grid.Row="1"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         Background="#1E1E1E"
+                         Foreground="#D4D4D4"
+                         BorderThickness="0"
+                         FontFamily="Consolas"
+                         FontSize="11"
+                         Padding="8"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

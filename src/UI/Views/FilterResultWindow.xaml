@@ -1,0 +1,85 @@
+<Window x:Class="MQReceiver.Views.FilterResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="股票过滤结果" Height="600" Width="1000"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏 -->
+        <Border Grid.Row="0" Background="#2C3E50" Padding="10">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding ConditionName}" FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,0,10,0"/>
+                <TextBlock Text="{Binding ResultCount, StringFormat='共 {0} 只股票'}" FontSize="14" Foreground="#ECF0F1" VerticalAlignment="Center"/>
+                <Button Content="关闭" HorizontalAlignment="Right" Margin="10,0,0,0" Click="CloseButton_Click" Width="60"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 数据表格 -->
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding Results}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  GridLinesVisibility="All"
+                  HeadersVisibility="Column"
+                  MouseDoubleClick="DataGrid_MouseDoubleClick"
+                  CanUserResizeColumns="True"
+                  CanUserSortColumns="True"
+                  EnableRowVirtualization="True"
+                  EnableColumnVirtualization="True"
+                  VirtualizingPanel.IsVirtualizing="True"
+                  VirtualizingPanel.VirtualizationMode="Recycling">
+            <DataGrid.Columns>
+                <!-- 股票名称（可点击） -->
+                <DataGridTemplateColumn Header="股票名称" Width="*" MinWidth="150">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Cursor="Hand" MouseLeftButtonDown="StockName_MouseLeftButtonDown" Tag="{Binding StockCode}">
+                                <Hyperlink>
+                                    <Run Text="{Binding StockName}"/>
+                                </Hyperlink>
+                            </TextBlock>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- 股票代码 -->
+                <DataGridTextColumn Header="股票代码" Binding="{Binding StockCode}" Width="100"/>
+
+                <!-- 周K值 -->
+                <DataGridTemplateColumn Header="周K" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
+                                       Foreground="{Binding WeeklyKColor}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- 月K值 -->
+                <DataGridTemplateColumn Header="月K" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
+                                       Foreground="{Binding MonthlyKColor}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- 季K值 -->
+                <DataGridTemplateColumn Header="季K" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
+                                       Foreground="{Binding QuarterlyKColor}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</Window>

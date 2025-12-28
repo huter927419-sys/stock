@@ -1,0 +1,77 @@
+<Window x:Class="MQReceiver.Views.FilterSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="过滤条件设置" Height="200" Width="350"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#2D2D30"
+        ShowInTaskbar="False">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="80"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 周K设置 -->
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="周K最小值："
+                   Foreground="#B8B8B8" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBox x:Name="WeeklyKTextBox" Grid.Row="0" Grid.Column="1"
+                 Height="28" Margin="0,0,0,10"
+                 Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A"
+                 VerticalContentAlignment="Center" Padding="8,0"/>
+
+        <!-- 月K设置 -->
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="月K最小值："
+                   Foreground="#B8B8B8" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBox x:Name="MonthlyKTextBox" Grid.Row="1" Grid.Column="1"
+                 Height="28" Margin="0,0,0,10"
+                 Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A"
+                 VerticalContentAlignment="Center" Padding="8,0"/>
+
+        <!-- 季K设置 -->
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="季K最小值："
+                   Foreground="#B8B8B8" VerticalAlignment="Center" Margin="0,0,0,10"/>
+        <TextBox x:Name="QuarterlyKTextBox" Grid.Row="2" Grid.Column="1"
+                 Height="28" Margin="0,0,0,10"
+                 Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A"
+                 VerticalContentAlignment="Center" Padding="8,0"/>
+
+        <!-- 按钮 -->
+        <StackPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                    Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="确定" Width="70" Height="28" Margin="0,0,10,0"
+                    Click="OkButton_Click"
+                    Background="#4A9EFF" Foreground="#FFFFFF" BorderBrush="#5AAEFF">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+            <Button Content="取消" Width="70" Height="28"
+                    Click="CancelButton_Click"
+                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>
