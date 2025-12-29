@@ -162,6 +162,11 @@ namespace MQReceiver.Repositories
 
         /// <summary>
         /// 获取所有股票代码列表
+        /// 只获取上海和深圳交易所的A股股票代码，且满足以下条件：
+        /// 1. 最近一年内有足够的数据密度（至少200个交易日）
+        /// 2. 最新数据日期在最近30天内（排除已退市股票）
+        /// 上海: 600*, 601*, 603*, 605*, 688* (科创板)
+        /// 深圳: 000*, 001*, 002*, 003*, 300*, 301* (创业板)
         /// </summary>
         public List<string> GetAllStockCodes()
         {
@@ -173,10 +178,31 @@ namespace MQReceiver.Repositories
                 {
                     connection.Open();
 
-                    string sql = "SELECT DISTINCT stock_code FROM stock_daily_data ORDER BY stock_code";
+                    // 只获取A股股票代码，且满足数据质量要求
+                    // 1. 股票代码符合A股格式
+                    // 2. 最近一年内至少有200个交易日的数据（正常一年约250个交易日）
+                    // 3. 最新数据日期在数据库最新日期的30天内（排除退市股票）
+                    string sql = @"
+                        WITH max_date AS (
+                            SELECT MAX(trade_date) as latest_date FROM stock_daily_data
+                        ),
+                        recent_data AS (
+                            SELECT stock_code,
+                                   COUNT(*) as data_count,
+                                   MAX(trade_date) as last_date,
+                                   MIN(trade_date) as first_date
+                            FROM stock_daily_data
+                            WHERE trade_date >= (SELECT latest_date FROM max_date) - INTERVAL '365 days'
+                              AND stock_code ~ '^(600|601|603|605|688|000|001|002|003|300|301)[0-9]{3}$'
+                            GROUP BY stock_code
+                            HAVING COUNT(*) >= 200
+                               AND MAX(trade_date) >= (SELECT latest_date FROM max_date) - INTERVAL '30 days'
+                        )
+                        SELECT stock_code FROM recent_data ORDER BY stock_code";
 
                     using (var command = new NpgsqlCommand(sql, connection))
                     {
+                        command.CommandTimeout = 120; // 增加超时时间
                         using (var reader = command.ExecuteReader())
                         {
                             while (reader.Read())
@@ -193,6 +219,37 @@ namespace MQReceiver.Repositories
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 获取数据库中最新的交易日期
+        /// </summary>
+        public DateTime? GetLatestTradeDate()
+        {
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    string sql = "SELECT MAX(trade_date) FROM stock_daily_data";
+
+                    using (var command = new NpgsqlCommand(sql, connection))
+                    {
+                        var result = command.ExecuteScalar();
+                        if (result != null && result != DBNull.Value)
+                        {
+                            return (DateTime)result;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"获取最新交易日期失败: {ex.Message}");
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -221,6 +278,156 @@ namespace MQReceiver.Repositories
                 Console.WriteLine($"删除股票数据失败: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 获取所有股票的名称（从stock_info表）
+        /// </summary>
+        public Dictionary<string, string> GetAllStockNames()
+        {
+            var result = new Dictionary<string, string>();
+
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    string sql = "SELECT stock_code, stock_name FROM stock_info WHERE stock_name IS NOT NULL AND stock_name <> ''";
+
+                    using (var command = new NpgsqlCommand(sql, connection))
+                    {
+                        command.CommandTimeout = 60;
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string code = reader.GetString(0);
+                                string name = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                                if (!result.ContainsKey(code))
+                                {
+                                    result[code] = name;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"获取股票名称失败: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 保存或更新股票基本信息（到stock_info表）
+        /// </summary>
+        public int SaveStockInfo(List<(string StockCode, string StockName, ushort MarketCode)> stockInfoList)
+        {
+            if (stockInfoList == null || stockInfoList.Count == 0)
+                return 0;
+
+            int savedCount = 0;
+
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    string sql = @"
+                        INSERT INTO stock_info (stock_code, stock_name, market_code, market_name, stock_type, update_time)
+                        VALUES (@stock_code, @stock_name, @market_code, @market_name, '股票', CURRENT_TIMESTAMP)
+                        ON CONFLICT (stock_code) DO UPDATE SET
+                            stock_name = CASE WHEN EXCLUDED.stock_name <> '' THEN EXCLUDED.stock_name ELSE stock_info.stock_name END,
+                            market_code = EXCLUDED.market_code,
+                            market_name = EXCLUDED.market_name,
+                            update_time = CURRENT_TIMESTAMP
+                        WHERE stock_info.stock_name IS DISTINCT FROM EXCLUDED.stock_name
+                           OR stock_info.market_code IS DISTINCT FROM EXCLUDED.market_code";
+
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        try
+                        {
+                            foreach (var info in stockInfoList)
+                            {
+                                if (string.IsNullOrWhiteSpace(info.StockCode) || string.IsNullOrWhiteSpace(info.StockName))
+                                    continue;
+
+                                using (var command = new NpgsqlCommand(sql, connection, transaction))
+                                {
+                                    string marketName = info.MarketCode == 1 ? "上海" : "深圳";
+                                    command.Parameters.AddWithValue("@stock_code", info.StockCode);
+                                    command.Parameters.AddWithValue("@stock_name", info.StockName);
+                                    command.Parameters.AddWithValue("@market_code", (short)info.MarketCode);
+                                    command.Parameters.AddWithValue("@market_name", marketName);
+                                    command.ExecuteNonQuery();
+                                    savedCount++;
+                                }
+                            }
+                            transaction.Commit();
+                        }
+                        catch (Exception)
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"保存股票信息失败: {ex.Message}");
+            }
+
+            return savedCount;
+        }
+
+        /// <summary>
+        /// 从stock_daily_data表初始化stock_info表（仅填充stock_code，无名称）
+        /// 用于在没有码表数据时初始化stock_info
+        /// </summary>
+        public int InitializeStockInfoFromDailyData()
+        {
+            int insertedCount = 0;
+
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    // 插入stock_daily_data中存在但stock_info中不存在的股票代码
+                    string sql = @"
+                        INSERT INTO stock_info (stock_code, market_code, market_name, stock_type, update_time)
+                        SELECT DISTINCT
+                            stock_code,
+                            market_code,
+                            CASE WHEN market_code = 1 THEN '上海' ELSE '深圳' END as market_name,
+                            '股票' as stock_type,
+                            CURRENT_TIMESTAMP
+                        FROM stock_daily_data
+                        WHERE stock_code NOT IN (SELECT stock_code FROM stock_info)
+                        ON CONFLICT (stock_code) DO NOTHING";
+
+                    using (var command = new NpgsqlCommand(sql, connection))
+                    {
+                        command.CommandTimeout = 120;
+                        insertedCount = command.ExecuteNonQuery();
+                    }
+                }
+
+                Console.WriteLine($"从日线数据初始化了 {insertedCount} 条股票信息到stock_info表");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"初始化股票信息失败: {ex.Message}");
+            }
+
+            return insertedCount;
         }
 
         #endregion

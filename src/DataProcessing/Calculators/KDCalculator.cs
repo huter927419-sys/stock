@@ -22,6 +22,12 @@ namespace MQReceiver.Calculators
         private readonly IKlineDataRepository _klineRepository;
         private const int DEFAULT_PERIOD = 9; // 默认周期为9
 
+        // 调试用变量 - 按周期类型分别记录
+        private static bool _debugWeekLogged = false;
+        private static bool _debugMonthLogged = false;
+        private static bool _debugQuarterLogged = false;
+        private static readonly object _debugLock = new object();
+
         /// <summary>
         /// 使用默认仓储初始化（向后兼容）
         /// </summary>
@@ -197,16 +203,49 @@ namespace MQReceiver.Calculators
                 // 缓存未命中，计算KD值
                 var aggregatedData = GetAggregatedData(stockCode, targetDate, period, cycleType);
 
+                // 调试：输出第一只股票的KD计算详情（每个周期类型输出一次）
+                bool shouldLog = stockCode == "000001" && (
+                    (cycleType == "week" && !_debugWeekLogged) ||
+                    (cycleType == "month" && !_debugMonthLogged) ||
+                    (cycleType == "quarter" && !_debugQuarterLogged)
+                );
+                if (shouldLog)
+                {
+                    lock (_debugLock)
+                    {
+                        Console.WriteLine($"[KD调试] {stockCode} {cycleType}周期 (period={period}):");
+                        Console.WriteLine($"  目标日期: {targetDate:yyyy-MM-dd}");
+                        Console.WriteLine($"  聚合后数据量: {aggregatedData.Count}");
+                        if (aggregatedData.Count > 0)
+                        {
+                            Console.WriteLine($"  聚合数据首条: {aggregatedData[0].Date:yyyy-MM-dd}");
+                            Console.WriteLine($"  聚合数据末条: {aggregatedData[aggregatedData.Count-1].Date:yyyy-MM-dd}");
+                        }
+                        if (cycleType == "week") _debugWeekLogged = true;
+                        else if (cycleType == "month") _debugMonthLogged = true;
+                        else if (cycleType == "quarter") _debugQuarterLogged = true;
+                    }
+                }
+
+                // 如果数据不足，尝试使用较短周期（最少需要2个周期的数据）
+                int actualPeriod = period;
                 if (aggregatedData.Count < period)
                 {
-                    return null; // 数据不足
+                    if (aggregatedData.Count >= 2)
+                    {
+                        actualPeriod = aggregatedData.Count;
+                    }
+                    else
+                    {
+                        return null; // 数据确实不足
+                    }
                 }
 
                 // 计算RSV值
                 var rsvList = new List<decimal>();
-                for (int i = period - 1; i < aggregatedData.Count; i++)
+                for (int i = actualPeriod - 1; i < aggregatedData.Count; i++)
                 {
-                    var periodData = aggregatedData.Skip(i - period + 1).Take(period).ToList();
+                    var periodData = aggregatedData.Skip(i - actualPeriod + 1).Take(actualPeriod).ToList();
                     decimal highest = periodData.Max(data => data.High);
                     decimal lowest = periodData.Min(data => data.Low);
                     decimal close = aggregatedData[i].Close;
@@ -262,26 +301,36 @@ namespace MQReceiver.Calculators
 
             try
             {
+                // 检查股票的数据范围，如果targetDate超出范围，使用股票的最新可用日期
+                var dateRange = _klineRepository.GetDataDateRange(stockCode);
+                DateTime actualTargetDate = targetDate;
+
+                if (dateRange.EndDate.HasValue && targetDate > dateRange.EndDate.Value)
+                {
+                    // 目标日期超出股票数据范围，使用股票的最新数据日期
+                    actualTargetDate = dateRange.EndDate.Value;
+                }
+
                 // 根据周期类型确定需要获取的数据范围
                 DateTime startDate;
                 switch (cycleType.ToLower())
                 {
                     case "week":
-                        startDate = targetDate.AddDays(-(period * 7 + 30)); // 周线需要更多数据
+                        startDate = actualTargetDate.AddDays(-(period * 7 + 30)); // 周线需要更多数据
                         break;
                     case "month":
-                        startDate = targetDate.AddMonths(-(period + 3)); // 月线需要更多数据
+                        startDate = actualTargetDate.AddMonths(-(period + 3)); // 月线需要更多数据
                         break;
                     case "quarter":
-                        startDate = targetDate.AddMonths(-((period + 2) * 3)); // 季线需要更多数据
+                        startDate = actualTargetDate.AddMonths(-((period + 2) * 3)); // 季线需要更多数据
                         break;
                     default:
-                        startDate = targetDate.AddDays(-(period * 2));
+                        startDate = actualTargetDate.AddDays(-(period * 2));
                         break;
                 }
 
                 // 通过仓储接口获取数据
-                var dailyData = _klineRepository.GetDailyData(stockCode, startDate, targetDate);
+                var dailyData = _klineRepository.GetDailyData(stockCode, startDate, actualTargetDate);
 
                 // 转换为内部格式
                 foreach (var data in dailyData)

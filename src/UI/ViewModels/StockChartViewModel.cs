@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Windows.Media;
 using LiveCharts;
 using LiveCharts.Wpf;
@@ -10,6 +11,9 @@ namespace MQReceiver.ViewModels
 {
     /// <summary>
     /// 股票图表视图模型
+    /// 按照专业股票软件的标准设计：
+    /// - 主图：K线图（蜡烛图）+ 成交量
+    /// - 副图：周KD、月KD、季KD分开显示，各含K线和D线
     /// </summary>
     public class StockChartViewModel
     {
@@ -24,11 +28,22 @@ namespace MQReceiver.ViewModels
         public string StockName => _chartData.StockName;
         public string StockCode => _chartData.StockCode;
 
-        // 图表系列
+        // 主图系列（K线+成交量合并）
+        public SeriesCollection CombinedSeries { get; set; }
         public SeriesCollection KlineSeries { get; set; }
         public SeriesCollection VolumeSeries { get; set; }
-        public SeriesCollection KDValueSeries { get; set; }
-        public SeriesCollection KDBandSeries { get; set; }
+
+        // KD副图系列（分开显示）
+        public SeriesCollection WeeklyKDSeries { get; set; }
+        public SeriesCollection MonthlyKDSeries { get; set; }
+        public SeriesCollection QuarterlyKDSeries { get; set; }
+
+        // K线图价格范围（用于紧凑显示）
+        public double KlinePriceMin { get; set; }
+        public double KlinePriceMax { get; set; }
+
+        // 成交量最大值（用于Y轴范围）
+        public double VolumeMax { get; set; }
 
         // 标签
         public string[] KlineLabels { get; set; }
@@ -40,382 +55,270 @@ namespace MQReceiver.ViewModels
         private void InitializeCharts()
         {
             InitializeKlineChart();
-            InitializeKDValueChart();
-            InitializeKDBandChart();
+            InitializeKDCharts();
         }
 
         /// <summary>
-        /// 初始化K线图
+        /// 初始化K线图（蜡烛图）和成交量图（合并到同一个图表）
         /// </summary>
         private void InitializeKlineChart()
         {
-            var klineSeries = new SeriesCollection();
-            var volumeSeries = new SeriesCollection();
+            var combinedSeries = new SeriesCollection();
             var labels = new List<string>();
 
-            // 准备K线数据
-            var candlePoints = new ChartValues<ObservablePoint>();
-            var shadowHighPoints = new ChartValues<ObservablePoint>();
-            var shadowLowPoints = new ChartValues<ObservablePoint>();
-            var volumePoints = new ChartValues<ObservablePoint>();
-
-            foreach (var candle in _chartData.DailyKline)
+            if (_chartData.DailyKline == null || _chartData.DailyKline.Count == 0)
             {
-                labels.Add(candle.Date.ToString("MM/dd"));
-
-                // 实体（开盘-收盘）
-                candlePoints.Add(new ObservablePoint(
-                    _chartData.DailyKline.IndexOf(candle),
-                    candle.Close));
-
-                // 影线（最高-最低）
-                shadowHighPoints.Add(new ObservablePoint(
-                    _chartData.DailyKline.IndexOf(candle),
-                    candle.High));
-                shadowLowPoints.Add(new ObservablePoint(
-                    _chartData.DailyKline.IndexOf(candle),
-                    candle.Low));
-
-                // 成交量
-                volumePoints.Add(new ObservablePoint(
-                    _chartData.DailyKline.IndexOf(candle),
-                    candle.Volume));
+                CombinedSeries = combinedSeries;
+                KlineSeries = new SeriesCollection();
+                VolumeSeries = new SeriesCollection();
+                KlineLabels = labels.ToArray();
+                return;
             }
 
+            // 计算价格范围
+            double minPrice = _chartData.DailyKline.Min(c => c.Low);
+            double maxPrice = _chartData.DailyKline.Max(c => c.High);
+            double priceRange = maxPrice - minPrice;
+
+            // 扩展Y轴下方25%用于显示成交量，上方5%边距
+            // 实际价格显示在整个Y轴的25%-95%区间
+            double extendedMin = minPrice - priceRange * 0.35;  // 下方留35%给成交量
+            double extendedMax = maxPrice + priceRange * 0.05;  // 上方留5%边距
+            KlinePriceMin = Math.Floor(extendedMin * 100) / 100;
+            KlinePriceMax = Math.Ceiling(extendedMax * 100) / 100;
+
+            // 计算成交量缩放因子：将成交量映射到价格Y轴的底部25%区域
+            double maxVolume = _chartData.DailyKline.Max(c => c.Volume);
+            double volumeAreaHeight = priceRange * 0.30;  // 成交量区域高度（价格范围的30%）
+            double volumeScaleFactor = volumeAreaHeight / maxVolume;
+            double volumeBaseY = KlinePriceMin;  // 成交量从Y轴最底部开始
+            VolumeMax = maxVolume;
+
+            // 准备成交量数据
+            var risingVolumeValues = new ChartValues<ObservablePoint>();
+            var fallingVolumeValues = new ChartValues<ObservablePoint>();
+
             // K线图实现（中国股市习惯：红涨绿跌）
-            // 为每个K线创建单独的系列，确保符合中国习惯
             for (int i = 0; i < _chartData.DailyKline.Count; i++)
             {
                 var candle = _chartData.DailyKline[i];
+                labels.Add(candle.Date.ToString("MM/dd"));
 
                 // 中国习惯：红涨绿跌
-                // IsRising = Close >= Open，所以红色表示上涨，绿色表示下跌
                 var color = candle.IsRising ? Brushes.Red : Brushes.Green;
 
                 // 计算实体上下边界
-                var bodyTop = Math.Max(candle.Open, candle.Close);    // 实体顶部
-                var bodyBottom = Math.Min(candle.Open, candle.Close);  // 实体底部
+                var bodyTop = Math.Max(candle.Open, candle.Close);
+                var bodyBottom = Math.Min(candle.Open, candle.Close);
 
-                // 1. 绘制上影线（最高价到实体顶部）
-                if (candle.High > bodyTop)
+                // 绘制影线（从最高到最低）- 使用Y轴0（价格轴）
+                var shadowPoints = new ChartValues<ObservablePoint>
                 {
-                    var upperShadowPoints = new ChartValues<ObservablePoint>
+                    new ObservablePoint(i, candle.High),
+                    new ObservablePoint(i, candle.Low)
+                };
+
+                combinedSeries.Add(new LineSeries
+                {
+                    Values = shadowPoints,
+                    Stroke = color,
+                    StrokeThickness = 1,
+                    PointGeometry = null,
+                    Fill = Brushes.Transparent,
+                    ScalesYAt = 0
+                });
+
+                // 绘制实体（较粗的线）
+                if (Math.Abs(bodyTop - bodyBottom) > 0.001)
+                {
+                    var bodyPoints = new ChartValues<ObservablePoint>
                     {
-                        new ObservablePoint(i, candle.High),
-                        new ObservablePoint(i, bodyTop)
+                        new ObservablePoint(i, bodyTop),
+                        new ObservablePoint(i, bodyBottom)
                     };
 
-                    var upperShadowSeries = new LineSeries
+                    combinedSeries.Add(new LineSeries
                     {
-                        Values = upperShadowPoints,
+                        Values = bodyPoints,
                         Stroke = color,
-                        StrokeThickness = 1,
-                        PointGeometry = null
-                    };
-
-                    klineSeries.Add(upperShadowSeries);
+                        Fill = color,
+                        StrokeThickness = 6,
+                        PointGeometry = null,
+                        ScalesYAt = 0
+                    });
                 }
 
-                // 2. 绘制实体（开盘到收盘的矩形）
-                // 使用较粗的LineSeries来模拟实体矩形
-                var bodyPoints = new ChartValues<ObservablePoint>
+                // 成交量 - 转换为价格坐标系（缩放到底部区域）
+                double scaledVolume = volumeBaseY + candle.Volume * volumeScaleFactor;
+                if (candle.IsRising)
                 {
-                    new ObservablePoint(i, bodyTop),
-                    new ObservablePoint(i, bodyBottom)
-                };
-
-                var bodySeries = new LineSeries
+                    risingVolumeValues.Add(new ObservablePoint(i, scaledVolume));
+                }
+                else
                 {
-                    Values = bodyPoints,
-                    Stroke = color,
-                    Fill = color, // 填充颜色
-                    StrokeThickness = 8, // 实体宽度（可根据需要调整）
-                    PointGeometry = null
-                };
-
-                klineSeries.Add(bodySeries);
-
-                // 3. 绘制下影线（实体底部到最低价）
-                if (candle.Low < bodyBottom)
-                {
-                    var lowerShadowPoints = new ChartValues<ObservablePoint>
-                    {
-                        new ObservablePoint(i, bodyBottom),
-                        new ObservablePoint(i, candle.Low)
-                    };
-
-                    var lowerShadowSeries = new LineSeries
-                    {
-                        Values = lowerShadowPoints,
-                        Stroke = color,
-                        StrokeThickness = 1,
-                        PointGeometry = null
-                    };
-
-                    klineSeries.Add(lowerShadowSeries);
+                    fallingVolumeValues.Add(new ObservablePoint(i, scaledVolume));
                 }
             }
 
-            // 成交量
-            var volumeColumnSeries = new ColumnSeries
+            // 成交量柱状图 - 使用与K线相同的Y轴（Y轴0），已缩放到底部区域
+            if (risingVolumeValues.Count > 0)
             {
-                Title = "成交量",
-                Values = volumePoints,
-                Fill = Brushes.LightBlue,
-                Stroke = Brushes.Transparent
-            };
+                combinedSeries.Add(new ColumnSeries
+                {
+                    Title = "成交量(涨)",
+                    Values = risingVolumeValues,
+                    Fill = new SolidColorBrush(Color.FromArgb(150, 255, 0, 0)),
+                    Stroke = Brushes.Transparent,
+                    MaxColumnWidth = 5,
+                    ColumnPadding = 0,
+                    ScalesYAt = 0  // 与K线使用同一个Y轴
+                });
+            }
 
-            volumeSeries.Add(volumeColumnSeries);
+            if (fallingVolumeValues.Count > 0)
+            {
+                combinedSeries.Add(new ColumnSeries
+                {
+                    Title = "成交量(跌)",
+                    Values = fallingVolumeValues,
+                    Fill = new SolidColorBrush(Color.FromArgb(150, 0, 128, 0)),
+                    Stroke = Brushes.Transparent,
+                    MaxColumnWidth = 5,
+                    ColumnPadding = 0,
+                    ScalesYAt = 0  // 与K线使用同一个Y轴
+                });
+            }
 
-            KlineSeries = klineSeries;
-            VolumeSeries = volumeSeries;
+            CombinedSeries = combinedSeries;
+            KlineSeries = new SeriesCollection();
+            VolumeSeries = new SeriesCollection();
             KlineLabels = labels.ToArray();
         }
 
         /// <summary>
-        /// 初始化KD指标K值叠加图
+        /// 初始化KD指标图（周、月、季分开）
+        /// 按照专业软件标准：K线白色，D线黄色
+        /// KD数据按日期对齐到日K线的X轴
         /// </summary>
-        private void InitializeKDValueChart()
+        private void InitializeKDCharts()
         {
-            var series = new SeriesCollection();
-            var labels = new List<string>();
+            // KD图使用与日K线相同的标签（日期）
+            KDLabels = KlineLabels;
 
-            // 周K值（蓝色）
-            if (_chartData.WeeklyKD.Count > 0)
+            // 构建日期到索引的映射
+            var dateToIndex = new Dictionary<DateTime, int>();
+            if (_chartData.DailyKline != null)
             {
-                var weeklyKPoints = new ChartValues<ObservablePoint>();
-                foreach (var kd in _chartData.WeeklyKD)
+                for (int i = 0; i < _chartData.DailyKline.Count; i++)
                 {
-                    weeklyKPoints.Add(new ObservablePoint(
-                        _chartData.WeeklyKD.IndexOf(kd),
-                        kd.K));
+                    var date = _chartData.DailyKline[i].Date.Date;
+                    if (!dateToIndex.ContainsKey(date))
+                    {
+                        dateToIndex[date] = i;
+                    }
                 }
-                series.Add(new LineSeries
-                {
-                    Title = "周K",
-                    Values = weeklyKPoints,
-                    Stroke = Brushes.Blue,
-                    Fill = Brushes.Transparent,
-                    PointGeometry = DefaultGeometries.Circle,
-                    PointGeometrySize = 3
-                });
             }
 
-            // 月K值（绿色）
-            if (_chartData.MonthlyKD.Count > 0)
-            {
-                var monthlyKPoints = new ChartValues<ObservablePoint>();
-                foreach (var kd in _chartData.MonthlyKD)
-                {
-                    monthlyKPoints.Add(new ObservablePoint(
-                        _chartData.MonthlyKD.IndexOf(kd),
-                        kd.K));
-                }
-                series.Add(new LineSeries
-                {
-                    Title = "月K",
-                    Values = monthlyKPoints,
-                    Stroke = Brushes.Green,
-                    Fill = Brushes.Transparent,
-                    PointGeometry = DefaultGeometries.Circle,
-                    PointGeometrySize = 3
-                });
-            }
+            int totalPoints = _chartData.DailyKline?.Count ?? 0;
 
-            // 季K值（红色）
-            if (_chartData.QuarterlyKD.Count > 0)
-            {
-                var quarterlyKPoints = new ChartValues<ObservablePoint>();
-                foreach (var kd in _chartData.QuarterlyKD)
-                {
-                    quarterlyKPoints.Add(new ObservablePoint(
-                        _chartData.QuarterlyKD.IndexOf(kd),
-                        kd.K));
-                }
-                series.Add(new LineSeries
-                {
-                    Title = "季K",
-                    Values = quarterlyKPoints,
-                    Stroke = Brushes.Red,
-                    Fill = Brushes.Transparent,
-                    PointGeometry = DefaultGeometries.Circle,
-                    PointGeometrySize = 3
-                });
-            }
-
-            // 标签（使用最长的序列）
-            var maxCount = Math.Max(
-                Math.Max(_chartData.WeeklyKD.Count, _chartData.MonthlyKD.Count),
-                _chartData.QuarterlyKD.Count);
-
-            for (int i = 0; i < maxCount; i++)
-            {
-                labels.Add($"P{i}");
-            }
-
-            KDValueSeries = series;
-            KDLabels = labels.ToArray();
+            // 初始化各周期KD图，按日期对齐
+            WeeklyKDSeries = CreateAlignedKDSeries(_chartData.WeeklyKD, "周", dateToIndex, totalPoints);
+            MonthlyKDSeries = CreateAlignedKDSeries(_chartData.MonthlyKD, "月", dateToIndex, totalPoints);
+            QuarterlyKDSeries = CreateAlignedKDSeries(_chartData.QuarterlyKD, "季", dateToIndex, totalPoints);
         }
 
         /// <summary>
-        /// 初始化KD指标带状图叠加图
+        /// 创建对齐的KD指标系列（按日期映射到日K线X轴）
         /// </summary>
-        private void InitializeKDBandChart()
+        private SeriesCollection CreateAlignedKDSeries(List<KDDataPoint> kdData, string period,
+            Dictionary<DateTime, int> dateToIndex, int totalPoints)
         {
             var series = new SeriesCollection();
 
-            // 周KD带状图（红色=K>D，蓝色=K<D）
-            if (_chartData.WeeklyKD.Count > 0)
-            {
-                CreateBandSeries(_chartData.WeeklyKD, "周KD",
-                    new SolidColorBrush(Color.FromArgb(128, 255, 0, 0)), // 半透明红色
-                    new SolidColorBrush(Color.FromArgb(128, 0, 0, 255)), // 半透明蓝色
-                    series);
-            }
+            if (kdData == null || kdData.Count == 0 || totalPoints == 0)
+                return series;
 
-            // 月KD带状图
-            if (_chartData.MonthlyKD.Count > 0)
-            {
-                CreateBandSeries(_chartData.MonthlyKD, "月KD",
-                    new SolidColorBrush(Color.FromArgb(100, 255, 0, 0)), // 更透明以便叠加
-                    new SolidColorBrush(Color.FromArgb(100, 0, 0, 255)),
-                    series);
-            }
+            // 按日期排序
+            var sortedKD = kdData.OrderBy(kd => kd.Date).ToList();
 
-            // 季KD带状图
-            if (_chartData.QuarterlyKD.Count > 0)
-            {
-                CreateBandSeries(_chartData.QuarterlyKD, "季KD",
-                    new SolidColorBrush(Color.FromArgb(80, 255, 0, 0)), // 最透明
-                    new SolidColorBrush(Color.FromArgb(80, 0, 0, 255)),
-                    series);
-            }
-
-            KDBandSeries = series;
-        }
-
-        /// <summary>
-        /// 创建带状图系列（K和D之间的填充区域）
-        /// 使用多个LineSeries来实现不同颜色的填充
-        /// </summary>
-        private void CreateBandSeries(
-            List<KDDataPoint> kdData,
-            string title,
-            Brush risingColor,
-            Brush fallingColor,
-            SeriesCollection targetCollection)
-        {
-            if (kdData == null || kdData.Count == 0)
-                return;
-
-            // 将数据分段，根据K>D或K<D创建不同颜色的区域
-            var segments = new List<BandSegment>();
-            BandSegment currentSegment = null;
-
-            for (int i = 0; i < kdData.Count; i++)
-            {
-                var kd = kdData[i];
-                bool isRising = kd.IsGoldenCross; // K > D
-
-                if (currentSegment == null || currentSegment.IsRising != isRising)
-                {
-                    // 开始新段
-                    if (currentSegment != null)
-                    {
-                        segments.Add(currentSegment);
-                    }
-                    currentSegment = new BandSegment
-                    {
-                        IsRising = isRising,
-                        StartIndex = i,
-                        Points = new ChartValues<ObservablePoint>()
-                    };
-                }
-
-                // 添加点：K值和D值
-                currentSegment.Points.Add(new ObservablePoint(i, kd.K));
-                currentSegment.Points.Add(new ObservablePoint(i, kd.D));
-            }
-
-            if (currentSegment != null)
-            {
-                segments.Add(currentSegment);
-            }
-
-            // 为每个段创建填充区域
-            // 在LiveCharts 0.9.7中，使用LineSeries并设置Fill属性来创建填充区域
-            // 注意：LiveCharts 0.9.7的Fill属性会填充到X轴（Y=0），而不是填充两条线之间的区域
-            // 这里我们使用K和D中较大值作为填充区域的顶部，填充到X轴
-            foreach (var segment in segments)
-            {
-                // 创建填充区域（使用K和D中的较大值作为填充区域的顶部）
-                var fillPoints = new ChartValues<ObservablePoint>();
-
-                for (int i = segment.StartIndex; i < segment.StartIndex + segment.Points.Count / 2; i++)
-                {
-                    if (i < kdData.Count)
-                    {
-                        var kd = kdData[i];
-                        // 使用K和D中的较大值作为填充区域的顶部
-                        fillPoints.Add(new ObservablePoint(i, Math.Max(kd.K, kd.D)));
-                    }
-                }
-
-                // 使用LineSeries创建填充区域
-                // Fill属性会填充到X轴（Y=0）
-                var fillSeries = new LineSeries
-                {
-                    Title = segment.IsRising ? $"{title}(K>D)" : $"{title}(K<D)",
-                    Values = fillPoints,
-                    Fill = segment.IsRising ? risingColor : fallingColor,
-                    Stroke = Brushes.Transparent,
-                    PointGeometry = null, // 不显示点
-                    LineSmoothness = 0 // 不使用平滑曲线
-                };
-
-                targetCollection.Add(fillSeries);
-            }
-
-            // 添加K线和D线（用于显示具体数值）
+            // 使用ObservablePoint来指定X坐标（日期对应的索引）
             var kPoints = new ChartValues<ObservablePoint>();
             var dPoints = new ChartValues<ObservablePoint>();
 
-            for (int i = 0; i < kdData.Count; i++)
+            foreach (var kd in sortedKD)
             {
-                var kd = kdData[i];
-                kPoints.Add(new ObservablePoint(i, kd.K));
-                dPoints.Add(new ObservablePoint(i, kd.D));
+                // 查找最接近的日期索引
+                int index = FindClosestDateIndex(kd.Date, dateToIndex, totalPoints);
+                if (index >= 0)
+                {
+                    kPoints.Add(new ObservablePoint(index, kd.K));
+                    dPoints.Add(new ObservablePoint(index, kd.D));
+                }
             }
 
-            targetCollection.Add(new LineSeries
+            if (kPoints.Count == 0)
+                return series;
+
+            // K线：白色实线
+            series.Add(new LineSeries
             {
-                Title = $"{title}-K",
+                Title = $"{period}K",
                 Values = kPoints,
-                Stroke = Brushes.Black,
+                Stroke = Brushes.White,
                 Fill = Brushes.Transparent,
-                PointGeometry = DefaultGeometries.Circle,
-                PointGeometrySize = 2
+                PointGeometry = null,
+                StrokeThickness = 1.5,
+                LineSmoothness = 0
             });
 
-            targetCollection.Add(new LineSeries
+            // D线：黄色实线
+            series.Add(new LineSeries
             {
-                Title = $"{title}-D",
+                Title = $"{period}D",
                 Values = dPoints,
-                Stroke = Brushes.Gray,
+                Stroke = Brushes.Yellow,
                 Fill = Brushes.Transparent,
-                PointGeometry = DefaultGeometries.Circle,
-                PointGeometrySize = 2
+                PointGeometry = null,
+                StrokeThickness = 1.5,
+                LineSmoothness = 0
             });
+
+            return series;
         }
 
         /// <summary>
-        /// 带状图段（用于分段绘制不同颜色）
+        /// 查找最接近的日期索引
         /// </summary>
-        private class BandSegment
+        private int FindClosestDateIndex(DateTime targetDate, Dictionary<DateTime, int> dateToIndex, int totalPoints)
         {
-            public bool IsRising { get; set; }
-            public int StartIndex { get; set; }
-            public ChartValues<ObservablePoint> Points { get; set; }
+            var date = targetDate.Date;
+
+            // 精确匹配
+            if (dateToIndex.TryGetValue(date, out int exactIndex))
+            {
+                return exactIndex;
+            }
+
+            // 查找最接近的日期（向前查找，找到该周期结束时的位置）
+            int closestIndex = -1;
+            int minDays = int.MaxValue;
+
+            foreach (var kvp in dateToIndex)
+            {
+                int days = Math.Abs((kvp.Key - date).Days);
+                if (days < minDays)
+                {
+                    minDays = days;
+                    closestIndex = kvp.Value;
+                }
+                // 如果找到的日期在目标日期之后且在7天内，优先使用
+                if (kvp.Key >= date && (kvp.Key - date).Days <= 7)
+                {
+                    return kvp.Value;
+                }
+            }
+
+            return closestIndex;
         }
 
         /// <summary>
@@ -423,56 +326,34 @@ namespace MQReceiver.ViewModels
         /// </summary>
         public void Cleanup()
         {
-            // 清理K线图系列
-            if (KlineSeries != null)
-            {
-                foreach (var series in KlineSeries)
-                {
-                    series.Values?.Clear();
-                }
-                KlineSeries.Clear();
-                KlineSeries = null;
-            }
+            ClearSeriesCollection(CombinedSeries);
+            ClearSeriesCollection(KlineSeries);
+            ClearSeriesCollection(VolumeSeries);
+            ClearSeriesCollection(WeeklyKDSeries);
+            ClearSeriesCollection(MonthlyKDSeries);
+            ClearSeriesCollection(QuarterlyKDSeries);
 
-            // 清理成交量系列
-            if (VolumeSeries != null)
-            {
-                foreach (var series in VolumeSeries)
-                {
-                    series.Values?.Clear();
-                }
-                VolumeSeries.Clear();
-                VolumeSeries = null;
-            }
+            CombinedSeries = null;
+            KlineSeries = null;
+            VolumeSeries = null;
+            WeeklyKDSeries = null;
+            MonthlyKDSeries = null;
+            QuarterlyKDSeries = null;
 
-            // 清理KD值系列
-            if (KDValueSeries != null)
-            {
-                foreach (var series in KDValueSeries)
-                {
-                    series.Values?.Clear();
-                }
-                KDValueSeries.Clear();
-                KDValueSeries = null;
-            }
-
-            // 清理KD带状图系列
-            if (KDBandSeries != null)
-            {
-                foreach (var series in KDBandSeries)
-                {
-                    series.Values?.Clear();
-                }
-                KDBandSeries.Clear();
-                KDBandSeries = null;
-            }
-
-            // 清理标签
             KlineLabels = null;
             KDLabels = null;
-
-            // 清理数据引用
             _chartData = null;
+        }
+
+        private void ClearSeriesCollection(SeriesCollection collection)
+        {
+            if (collection == null) return;
+
+            foreach (var series in collection)
+            {
+                series.Values?.Clear();
+            }
+            collection.Clear();
         }
     }
 }

@@ -41,18 +41,13 @@ namespace MQReceiver.Services
                 // 1. 加载日K线数据
                 chartData.DailyKline = LoadDailyKlineData(stockCode, days);
 
-                // 2. 加载KD指标数据
-                DateTime endDate = DateTime.Now.Date;
-                DateTime startDate = endDate.AddDays(-days);
-
-                // 加载周KD序列（最近20周）
-                chartData.WeeklyKD = LoadKDSequence(stockCode, startDate, endDate, "week", 20);
-
-                // 加载月KD序列（最近12个月）
-                chartData.MonthlyKD = LoadKDSequence(stockCode, startDate, endDate, "month", 12);
-
-                // 加载季KD序列（最近8个季度）
-                chartData.QuarterlyKD = LoadKDSequence(stockCode, startDate, endDate, "quarter", 8);
+                // 2. 为每个交易日计算对应的周/月/季KD值（与日K线完全对齐）
+                if (chartData.DailyKline.Count > 0)
+                {
+                    chartData.WeeklyKD = CalculateKDForEachTradingDay(stockCode, chartData.DailyKline, "week");
+                    chartData.MonthlyKD = CalculateKDForEachTradingDay(stockCode, chartData.DailyKline, "month");
+                    chartData.QuarterlyKD = CalculateKDForEachTradingDay(stockCode, chartData.DailyKline, "quarter");
+                }
             }
             catch (Exception ex)
             {
@@ -60,6 +55,91 @@ namespace MQReceiver.Services
             }
 
             return chartData;
+        }
+
+        /// <summary>
+        /// 为每个交易日计算对应的周/月/季KD值
+        /// 这样KD数据可以与日K线完全对齐
+        /// </summary>
+        private List<Models.KDDataPoint> CalculateKDForEachTradingDay(string stockCode, List<Models.CandleDataPoint> dailyKline, string cycleType)
+        {
+            var result = new List<Models.KDDataPoint>();
+
+            // 为了优化性能，使用缓存避免重复计算同一周期内的KD
+            // 同一周/月/季内的KD值是相同的（因为周期数据还没变）
+            string lastCycleKey = "";
+            double lastK = 0, lastD = 0;
+
+            foreach (var candle in dailyKline)
+            {
+                // 获取当前日期所属的周期键
+                string cycleKey = GetCycleKey(candle.Date, cycleType);
+
+                // 如果是同一个周期，复用上次的KD值（优化）
+                if (cycleKey == lastCycleKey && result.Count > 0)
+                {
+                    result.Add(new Models.KDDataPoint
+                    {
+                        Date = candle.Date,
+                        K = lastK,
+                        D = lastD
+                    });
+                    continue;
+                }
+
+                // 计算该日期的KD值
+                KDResult kdResult = null;
+                switch (cycleType.ToLower())
+                {
+                    case "week":
+                        kdResult = kdCalculator.CalculateWeeklyKD(stockCode, candle.Date);
+                        break;
+                    case "month":
+                        kdResult = kdCalculator.CalculateMonthlyKD(stockCode, candle.Date);
+                        break;
+                    case "quarter":
+                        kdResult = kdCalculator.CalculateQuarterlyKD(stockCode, candle.Date);
+                        break;
+                }
+
+                if (kdResult != null)
+                {
+                    lastK = (double)kdResult.K;
+                    lastD = (double)kdResult.D;
+                    lastCycleKey = cycleKey;
+
+                    result.Add(new Models.KDDataPoint
+                    {
+                        Date = candle.Date,
+                        K = lastK,
+                        D = lastD
+                    });
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 获取日期所属的周期键（用于优化，判断是否在同一周期内）
+        /// </summary>
+        private string GetCycleKey(DateTime date, string cycleType)
+        {
+            switch (cycleType.ToLower())
+            {
+                case "week":
+                    // 获取该周的周一日期作为键
+                    int daysFromMonday = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+                    DateTime monday = date.AddDays(-daysFromMonday);
+                    return $"W{monday:yyyyMMdd}";
+                case "month":
+                    return $"M{date:yyyyMM}";
+                case "quarter":
+                    int quarter = (date.Month - 1) / 3 + 1;
+                    return $"Q{date.Year}{quarter}";
+                default:
+                    return date.ToString("yyyyMMdd");
+            }
         }
 
         /// <summary>

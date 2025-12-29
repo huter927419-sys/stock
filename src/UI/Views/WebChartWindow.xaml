@@ -1,0 +1,18 @@
+<Window x:Class="MQReceiver.Views.WebChartWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="股票图表" Height="950" Width="1400"
+        WindowStartupLocation="CenterScreen"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
+    <Grid>
+        <wv2:WebView2 x:Name="webView" />
+        <TextBlock x:Name="loadingText"
+                   Text="正在加载图表..."
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontSize="16"
+                   Foreground="Gray"/>
+    </Grid>
+</Window>

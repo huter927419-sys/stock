@@ -123,7 +123,7 @@ namespace MQReceiver.Views
         {
             try
             {
-                var chartWindow = new StockChartWindow(stockCode);
+                var chartWindow = new WebChartWindow(stockCode);
                 chartWindow.Show();
             }
             catch (Exception ex)

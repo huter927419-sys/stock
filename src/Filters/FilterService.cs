@@ -442,7 +442,14 @@ namespace MQReceiver.Services
 
                 // 记录开始时间
                 var stopwatch = Stopwatch.StartNew();
-                DateTime targetDate = DateTime.Now.Date;
+
+                // 获取数据库中最新的交易日期，而不是使用今天的日期
+                var repository = new PostgresStockDataRepository();
+                DateTime? latestDate = repository.GetLatestTradeDate();
+                DateTime targetDate = latestDate ?? DateTime.Now.Date;
+
+                Console.WriteLine($"使用的目标日期: {targetDate:yyyy-MM-dd}" +
+                    (latestDate.HasValue ? " (数据库最新日期)" : " (当前日期)"));
 
                 // ========== 过滤条件1：周K、月K、季K 金叉过滤 ==========
                 Console.WriteLine("【过滤条件1】周K、月K、季K 金叉过滤");
@@ -549,15 +556,34 @@ namespace MQReceiver.Services
                 {
                     Console.WriteLine($"从数据库获取到 {stockCodes.Count} 只股票代码");
 
+                    // 获取股票名称
+                    var stockNames = repository.GetAllStockNames();
+                    Console.WriteLine($"从stock_info表获取到 {stockNames.Count} 个股票名称");
+
+                    // 如果stock_info表没有数据，尝试从日线数据初始化
+                    if (stockNames.Count == 0)
+                    {
+                        Console.WriteLine("stock_info表为空，尝试从日线数据初始化...");
+                        repository.InitializeStockInfoFromDailyData();
+                        // 重新获取（此时只有股票代码，没有名称）
+                        stockNames = repository.GetAllStockNames();
+                    }
+
+                    // 统计数据覆盖情况
+                    PrintDataCoverageStatistics(repository, stockCodes);
+
                     // 为每个股票代码创建一个基本的实时数据记录
                     var records = new List<RealTimeDataRecord>();
                     foreach (var code in stockCodes)
                     {
+                        // 尝试获取股票名称，如果没有则使用代码作为名称
+                        string name = stockNames.ContainsKey(code) ? stockNames[code] : code;
+
                         records.Add(new RealTimeDataRecord
                         {
                             StockCode = code,
-                            StockName = "", // 名称暂时为空
-                            MarketCode = code.StartsWith("SH") ? (ushort)1 : (ushort)0,
+                            StockName = name,
+                            MarketCode = code.StartsWith("6") ? (ushort)1 : (ushort)0,  // 6开头是上海
                             UpdateTime = DateTime.Now
                         });
                     }
@@ -568,6 +594,57 @@ namespace MQReceiver.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"从数据库加载股票代码失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 打印数据覆盖统计信息
+        /// </summary>
+        private void PrintDataCoverageStatistics(PostgresStockDataRepository repository, List<string> stockCodes)
+        {
+            try
+            {
+                int hasWeeklyData = 0;  // 至少14天数据（可算周KD）
+                int hasMonthlyData = 0; // 至少60天数据（可算月KD）
+                int hasQuarterlyData = 0; // 至少180天数据（可算季KD）
+                string sampleCode = null;
+                DateTime? sampleStart = null;
+                DateTime? sampleEnd = null;
+
+                // 只检查前100只股票
+                var sampleCodes = stockCodes.Take(100).ToList();
+                foreach (var code in sampleCodes)
+                {
+                    var dateRange = repository.GetDataDateRange(code);
+                    if (dateRange.StartDate.HasValue && dateRange.EndDate.HasValue)
+                    {
+                        int days = (dateRange.EndDate.Value - dateRange.StartDate.Value).Days;
+                        if (days >= 14) hasWeeklyData++;
+                        if (days >= 60) hasMonthlyData++;
+                        if (days >= 180) hasQuarterlyData++;
+
+                        if (sampleCode == null)
+                        {
+                            sampleCode = code;
+                            sampleStart = dateRange.StartDate;
+                            sampleEnd = dateRange.EndDate;
+                        }
+                    }
+                }
+
+                Console.WriteLine($"\n数据覆盖统计（基于前{sampleCodes.Count}只股票）：");
+                Console.WriteLine($"  - 可计算周KD (>=14天): {hasWeeklyData} ({hasWeeklyData * 100 / sampleCodes.Count}%)");
+                Console.WriteLine($"  - 可计算月KD (>=60天): {hasMonthlyData} ({hasMonthlyData * 100 / sampleCodes.Count}%)");
+                Console.WriteLine($"  - 可计算季KD (>=180天): {hasQuarterlyData} ({hasQuarterlyData * 100 / sampleCodes.Count}%)");
+                if (sampleCode != null)
+                {
+                    Console.WriteLine($"  - 示例股票 {sampleCode}: {sampleStart:yyyy-MM-dd} 到 {sampleEnd:yyyy-MM-dd}");
+                }
+                Console.WriteLine();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"统计数据覆盖情况失败: {ex.Message}");
             }
         }
     }

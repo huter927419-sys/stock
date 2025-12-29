@@ -33,7 +33,10 @@
       "Bash(cmd /c:*)",
       "Bash(git init:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: MQReceiver股票数据过滤系统\n\n功能特性:\n- MQ服务: 接收实时股票数据\n- 过滤服务: 基于KD指标的三条件过滤\n  - 条件1: 周K、月K、季K金叉过滤\n  - 条件2: 周K>月K>季K趋势过滤\n  - 条件3: 月K>季K或周K<月K关系过滤\n- WPF界面: 显示过滤结果，支持设置过滤阈值\n- 配置持久化: 三个面板的过滤设置独立保存\n\n技术栈:\n- .NET Framework WPF\n- PostgreSQL数据库\n- Redis缓存\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"f:\\\\dsfr\\\\mqq\\\\MQReceiver.csproj\" /t:Build /p:Configuration=Debug /v:normal)"
     ]
   }
 }

@@ -444,40 +444,60 @@ namespace MQReceiver.Services
             {
                 List<MarketTableDataRecord> records = StockDataParser.ParseMarketTableData(jsonData);
 
-                if (records.Count > 0 && realTimeCache != null)
+                if (records.Count > 0)
                 {
-                    // 将码表数据更新到实时数据缓存中（更新股票名称）
-                    int updatedCount = 0;
+                    // 保存股票信息到数据库（stock_info表）
+                    var stockInfoList = new List<(string StockCode, string StockName, ushort MarketCode)>();
                     foreach (var record in records)
                     {
-                        if (string.IsNullOrEmpty(record.StockCode))
-                            continue;
-
-                        // 获取现有的实时数据记录
-                        var existingRecord = realTimeCache.GetData(record.StockCode);
-                        if (existingRecord != null)
+                        if (!string.IsNullOrEmpty(record.StockCode) && !string.IsNullOrEmpty(record.StockName))
                         {
-                            // 更新股票名称
-                            existingRecord.StockName = record.StockName;
-                            realTimeCache.UpdateData(existingRecord);
-                            updatedCount++;
-                        }
-                        else
-                        {
-                            // 如果没有实时数据，创建一个只包含基本信息的记录
-                            var newRecord = new RealTimeDataRecord
-                            {
-                                StockCode = record.StockCode,
-                                StockName = record.StockName,
-                                MarketCode = (ushort)record.MarketCode,
-                                UpdateTime = record.UpdateTime
-                            };
-                            realTimeCache.UpdateData(newRecord);
-                            updatedCount++;
+                            stockInfoList.Add((record.StockCode, record.StockName, (ushort)record.MarketCode));
                         }
                     }
-                    Console.WriteLine("成功更新 {0} 条码表数据到内存缓存（当前缓存数量: {1}）",
-                        updatedCount, realTimeCache.Count);
+
+                    if (stockInfoList.Count > 0)
+                    {
+                        var repository = new PostgresStockDataRepository();
+                        int savedCount = repository.SaveStockInfo(stockInfoList);
+                        Console.WriteLine("成功保存 {0} 条股票信息到数据库", savedCount);
+                    }
+
+                    // 将码表数据更新到实时数据缓存中（更新股票名称）
+                    if (realTimeCache != null)
+                    {
+                        int updatedCount = 0;
+                        foreach (var record in records)
+                        {
+                            if (string.IsNullOrEmpty(record.StockCode))
+                                continue;
+
+                            // 获取现有的实时数据记录
+                            var existingRecord = realTimeCache.GetData(record.StockCode);
+                            if (existingRecord != null)
+                            {
+                                // 更新股票名称
+                                existingRecord.StockName = record.StockName;
+                                realTimeCache.UpdateData(existingRecord);
+                                updatedCount++;
+                            }
+                            else
+                            {
+                                // 如果没有实时数据，创建一个只包含基本信息的记录
+                                var newRecord = new RealTimeDataRecord
+                                {
+                                    StockCode = record.StockCode,
+                                    StockName = record.StockName,
+                                    MarketCode = (ushort)record.MarketCode,
+                                    UpdateTime = record.UpdateTime
+                                };
+                                realTimeCache.UpdateData(newRecord);
+                                updatedCount++;
+                            }
+                        }
+                        Console.WriteLine("成功更新 {0} 条码表数据到内存缓存（当前缓存数量: {1}）",
+                            updatedCount, realTimeCache.Count);
+                    }
                 }
             }
             catch (Exception ex)

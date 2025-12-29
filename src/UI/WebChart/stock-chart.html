@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票图表</title>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background-color: #1a1a2e;
+            color: #eee;
+        }
+        .header {
+            background-color: #2C3E50;
+            padding: 10px 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .stock-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+        }
+        .stock-code {
+            font-size: 14px;
+            color: #ECF0F1;
+        }
+        .chart-container {
+            width: 100%;
+            height: calc(100vh - 50px);
+            display: flex;
+            flex-direction: column;
+        }
+        .main-chart {
+            flex: 3;
+            min-height: 0;
+            position: relative;
+        }
+        .sub-chart {
+            flex: 1;
+            min-height: 0;
+            border-top: 1px solid #333;
+            position: relative;
+        }
+        .chart-label {
+            position: absolute;
+            top: 5px;
+            left: 10px;
+            font-size: 12px;
+            color: #888;
+            z-index: 10;
+        }
+        .legend {
+            position: absolute;
+            top: 5px;
+            right: 60px;
+            font-size: 11px;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span class="stock-name" id="stockName">--</span>
+        <span class="stock-code" id="stockCode">--</span>
+    </div>
+    <div class="chart-container">
+        <div class="main-chart" id="mainChart">
+            <div class="chart-label">日K线 + 成交量</div>
+        </div>
+        <div class="sub-chart" id="kValueChart">
+            <div class="chart-label">周/月/季 K值叠加</div>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-color" style="background:#FF6B6B"></div><span style="color:#FF6B6B">周K</span></div>
+                <div class="legend-item"><div class="legend-color" style="background:#4ECDC4"></div><span style="color:#4ECDC4">月K</span></div>
+                <div class="legend-item"><div class="legend-color" style="background:#FFE66D"></div><span style="color:#FFE66D">季K</span></div>
+            </div>
+        </div>
+        <div class="sub-chart" id="kdBandChart">
+            <div class="chart-label">KD差值带状图 (K-D)</div>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-color" style="background:#E53935"></div><span style="color:#E53935">周</span></div>
+                <div class="legend-item"><div class="legend-color" style="background:#FF9800"></div><span style="color:#FF9800">月</span></div>
+                <div class="legend-item"><div class="legend-color" style="background:#4CAF50"></div><span style="color:#4CAF50">季</span></div>
+                <span style="color:#888; margin-left:10px; font-size:10px">&gt;0 多头 | &lt;0 空头</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 图表实例
+        let mainChart, kValueChart, kdBandChart;
+        let candleSeries, volumeSeries;
+        // K值叠加图的系列
+        let weeklyKLineSeries, monthlyKLineSeries, quarterlyKLineSeries;
+        // KD带状图系列
+        let weeklyBandSeries, monthlyBandSeries, quarterlyBandSeries;
+
+        // 格式化成交量数字（万、亿）
+        function formatVolume(value) {
+            if (value >= 100000000) {
+                return (value / 100000000).toFixed(2) + '亿';
+            } else if (value >= 10000) {
+                return (value / 10000).toFixed(0) + '万';
+            } else {
+                return value.toFixed(0);
+            }
+        }
+
+        // 通用图表配置
+        const chartOptions = {
+            layout: {
+                background: { type: 'solid', color: '#1a1a2e' },
+                textColor: '#DDD',
+            },
+            grid: {
+                vertLines: { color: '#2B2B43' },
+                horzLines: { color: '#2B2B43' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#2B2B43',
+            },
+            timeScale: {
+                borderColor: '#2B2B43',
+                timeVisible: false,
+                tickMarkFormatter: (time, tickMarkType, locale) => {
+                    if (typeof time === 'object' && time.year) {
+                        const { year, month, day } = time;
+                        if (tickMarkType === 0) {
+                            return `${year}`;
+                        } else if (tickMarkType === 1) {
+                            return `${year}-${String(month).padStart(2, '0')}`;
+                        } else {
+                            return `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        }
+                    }
+                    return String(time);
+                },
+            },
+            localization: {
+                locale: 'zh-CN',
+                priceFormatter: (price) => price.toFixed(2),
+                dateFormatter: (businessDayOrTimestamp) => {
+                    if (typeof businessDayOrTimestamp === 'object' && businessDayOrTimestamp.year) {
+                        const { year, month, day } = businessDayOrTimestamp;
+                        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    }
+                    return String(businessDayOrTimestamp);
+                },
+            },
+        };
+
+        // KD图表配置（Y轴0-100，隐藏时间轴）
+        const kdChartOptions = {
+            ...chartOptions,
+            rightPriceScale: {
+                ...chartOptions.rightPriceScale,
+                scaleMargins: { top: 0.1, bottom: 0.1 },
+            },
+            timeScale: {
+                ...chartOptions.timeScale,
+                visible: false,
+            },
+        };
+
+        // 初始化所有图表
+        function initCharts() {
+            // 主图（K线+成交量）
+            mainChart = LightweightCharts.createChart(document.getElementById('mainChart'), {
+                ...chartOptions,
+                height: document.getElementById('mainChart').clientHeight,
+            });
+
+            // K线
+            candleSeries = mainChart.addCandlestickSeries({
+                upColor: '#ef5350',
+                downColor: '#26a69a',
+                borderUpColor: '#ef5350',
+                borderDownColor: '#26a69a',
+                wickUpColor: '#ef5350',
+                wickDownColor: '#26a69a',
+            });
+
+            // 成交量
+            volumeSeries = mainChart.addHistogramSeries({
+                color: '#26a69a',
+                priceFormat: {
+                    type: 'custom',
+                    formatter: formatVolume,
+                },
+                priceScaleId: 'volume',
+            });
+            mainChart.priceScale('volume').applyOptions({
+                scaleMargins: { top: 0.8, bottom: 0 },
+            });
+            mainChart.priceScale('right').applyOptions({
+                scaleMargins: { top: 0.05, bottom: 0.25 },
+            });
+
+            // K值叠加图
+            kValueChart = LightweightCharts.createChart(document.getElementById('kValueChart'), {
+                ...kdChartOptions,
+                height: document.getElementById('kValueChart').clientHeight,
+            });
+            // 周K值 - 红色
+            weeklyKLineSeries = kValueChart.addLineSeries({
+                color: '#FF6B6B',
+                lineWidth: 1.5,
+                title: '周K',
+                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+            });
+            // 月K值 - 青色
+            monthlyKLineSeries = kValueChart.addLineSeries({
+                color: '#4ECDC4',
+                lineWidth: 1.5,
+                title: '月K',
+                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+            });
+            // 季K值 - 黄色
+            quarterlyKLineSeries = kValueChart.addLineSeries({
+                color: '#FFE66D',
+                lineWidth: 1.5,
+                title: '季K',
+                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+            });
+
+            // KD带状图
+            kdBandChart = LightweightCharts.createChart(document.getElementById('kdBandChart'), {
+                ...kdChartOptions,
+                height: document.getElementById('kdBandChart').clientHeight,
+            });
+
+            // KD带状图（使用填充，配色更专业）
+            // 添加顺序决定层叠：先添加的在底层
+
+            // 季K-D带状 - 浅绿/浅紫（最底层，透明度低）
+            quarterlyBandSeries = kdBandChart.addBaselineSeries({
+                baseValue: { type: 'price', price: 0 },
+                topLineColor: '#4CAF50',                    // 绿色线
+                topFillColor1: 'rgba(76, 175, 80, 0.25)',   // 浅绿填充
+                topFillColor2: 'rgba(76, 175, 80, 0.05)',
+                bottomLineColor: '#9C27B0',                 // 紫色线
+                bottomFillColor1: 'rgba(156, 39, 176, 0.05)',
+                bottomFillColor2: 'rgba(156, 39, 176, 0.25)',
+                lineWidth: 1,
+                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+            });
+
+            // 月K-D带状 - 橙/蓝（中间层）
+            monthlyBandSeries = kdBandChart.addBaselineSeries({
+                baseValue: { type: 'price', price: 0 },
+                topLineColor: '#FF9800',                    // 橙色线
+                topFillColor1: 'rgba(255, 152, 0, 0.3)',    // 橙色填充
+                topFillColor2: 'rgba(255, 152, 0, 0.08)',
+                bottomLineColor: '#03A9F4',                 // 蓝色线
+                bottomFillColor1: 'rgba(3, 169, 244, 0.08)',
+                bottomFillColor2: 'rgba(3, 169, 244, 0.3)',
+                lineWidth: 1.5,
+                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+            });
+
+            // 周K-D带状 - 红/深蓝（最上层，最醒目）
+            weeklyBandSeries = kdBandChart.addBaselineSeries({
+                baseValue: { type: 'price', price: 0 },
+                topLineColor: '#E53935',                    // 红色线
+                topFillColor1: 'rgba(229, 57, 53, 0.35)',   // 红色填充
+                topFillColor2: 'rgba(229, 57, 53, 0.1)',
+                bottomLineColor: '#1E88E5',                 // 深蓝线
+                bottomFillColor1: 'rgba(30, 136, 229, 0.1)',
+                bottomFillColor2: 'rgba(30, 136, 229, 0.35)',
+                lineWidth: 2,
+                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+            });
+
+            // 同步所有图表的时间轴
+            syncTimeScales();
+        }
+
+        // 同步时间轴
+        function syncTimeScales() {
+            const charts = [mainChart, kValueChart, kdBandChart];
+            let isSyncing = false;
+
+            charts.forEach((chart, index) => {
+                chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
+                    if (isSyncing || !logicalRange) return;
+                    isSyncing = true;
+                    charts.forEach((otherChart, otherIndex) => {
+                        if (index !== otherIndex) {
+                            try {
+                                otherChart.timeScale().setVisibleLogicalRange(logicalRange);
+                            } catch (e) {
+                                // 忽略没有数据的图表的错误
+                            }
+                        }
+                    });
+                    isSyncing = false;
+                });
+            });
+        }
+
+        // 设置股票信息
+        function setStockInfo(name, code) {
+            document.getElementById('stockName').textContent = name || '--';
+            document.getElementById('stockCode').textContent = code || '--';
+        }
+
+        // 设置K线数据
+        function setCandleData(data) {
+            if (candleSeries && data && data.length > 0) {
+                candleSeries.setData(data);
+                mainChart.timeScale().fitContent();
+            }
+        }
+
+        // 设置成交量数据
+        function setVolumeData(data) {
+            if (volumeSeries && data && data.length > 0) {
+                volumeSeries.setData(data);
+            }
+        }
+
+        // 设置K值叠加数据
+        function setKValueData(weeklyK, monthlyK, quarterlyK) {
+            if (weeklyKLineSeries && weeklyK && weeklyK.length > 0) {
+                weeklyKLineSeries.setData(weeklyK);
+            }
+            if (monthlyKLineSeries && monthlyK && monthlyK.length > 0) {
+                monthlyKLineSeries.setData(monthlyK);
+            }
+            if (quarterlyKLineSeries && quarterlyK && quarterlyK.length > 0) {
+                quarterlyKLineSeries.setData(quarterlyK);
+            }
+        }
+
+        // 计算K-D差值用于带状图
+        function calculateKDDiff(kData, dData) {
+            if (!kData || !dData || kData.length === 0 || dData.length === 0) {
+                return [];
+            }
+
+            // 创建D值的映射
+            const dMap = new Map();
+            dData.forEach(d => {
+                dMap.set(d.time, d.value);
+            });
+
+            // 计算K-D差值
+            return kData.map(k => {
+                const dValue = dMap.get(k.time);
+                if (dValue !== undefined) {
+                    return {
+                        time: k.time,
+                        value: k.value - dValue  // K-D，正值表示K>D，负值表示K<D
+                    };
+                }
+                return null;
+            }).filter(x => x !== null);
+        }
+
+        // 设置KD带状图数据
+        function setKDBandData(weeklyK, weeklyD, monthlyK, monthlyD, quarterlyK, quarterlyD) {
+            // 计算各周期的K-D差值
+            const weeklyDiff = calculateKDDiff(weeklyK, weeklyD);
+            const monthlyDiff = calculateKDDiff(monthlyK, monthlyD);
+            const quarterlyDiff = calculateKDDiff(quarterlyK, quarterlyD);
+
+            if (weeklyBandSeries && weeklyDiff.length > 0) {
+                weeklyBandSeries.setData(weeklyDiff);
+            }
+            if (monthlyBandSeries && monthlyDiff.length > 0) {
+                monthlyBandSeries.setData(monthlyDiff);
+            }
+            if (quarterlyBandSeries && quarterlyDiff.length > 0) {
+                quarterlyBandSeries.setData(quarterlyDiff);
+            }
+        }
+
+        // 一次性设置所有数据（从C#调用）
+        function setAllData(jsonData) {
+            try {
+                const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+
+                if (data.stockName) setStockInfo(data.stockName, data.stockCode);
+                if (data.candles) setCandleData(data.candles);
+                if (data.volumes) setVolumeData(data.volumes);
+
+                // 设置K值叠加图
+                setKValueData(data.weeklyK, data.monthlyK, data.quarterlyK);
+
+                // 设置KD带状图
+                setKDBandData(
+                    data.weeklyK, data.weeklyD,
+                    data.monthlyK, data.monthlyD,
+                    data.quarterlyK, data.quarterlyD
+                );
+
+                // 只对主图调用 fitContent
+                if (data.candles && data.candles.length > 0) {
+                    mainChart.timeScale().fitContent();
+                }
+
+                return 'success';
+            } catch (e) {
+                console.error('Error setting data:', e);
+                return 'error: ' + e.message;
+            }
+        }
+
+        // 窗口大小变化时重新调整图表
+        window.addEventListener('resize', () => {
+            if (mainChart) mainChart.resize(document.getElementById('mainChart').clientWidth, document.getElementById('mainChart').clientHeight);
+            if (kValueChart) kValueChart.resize(document.getElementById('kValueChart').clientWidth, document.getElementById('kValueChart').clientHeight);
+            if (kdBandChart) kdBandChart.resize(document.getElementById('kdBandChart').clientWidth, document.getElementById('kdBandChart').clientHeight);
+        });
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', initCharts);
+    </script>
+</body>
+</html>

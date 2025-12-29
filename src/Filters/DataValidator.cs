@@ -12,6 +12,8 @@ namespace MQReceiver.Filters
     {
         /// <summary>
         /// 检查实时数据完整性
+        /// 注意：当从数据库加载股票代码列表时，只需要检查股票代码是否有效
+        /// 价格数据检查是可选的（用于实时数据过滤）
         /// </summary>
         public DataIntegrityCheckResult CheckRealTimeDataIntegrity(RealTimeDataRecord realTimeData)
         {
@@ -27,60 +29,60 @@ namespace MQReceiver.Filters
                 return result;
             }
 
-            // 检查股票代码
+            // 检查股票代码 - 这是必须的
             if (string.IsNullOrWhiteSpace(realTimeData.StockCode))
             {
                 result.Issues.Add("股票代码为空");
                 result.IsValid = false;
+                return result;
             }
 
-            // 检查价格数据
-            if (realTimeData.NewPrice <= 0)
-            {
-                result.Issues.Add("最新价无效或为0");
-            }
-            if (realTimeData.LastClose <= 0)
-            {
-                result.Issues.Add("昨收价无效或为0");
-            }
-            if (realTimeData.Open <= 0)
-            {
-                result.Issues.Add("开盘价无效或为0");
-            }
-            if (realTimeData.High <= 0)
-            {
-                result.Issues.Add("最高价无效或为0");
-            }
-            if (realTimeData.Low <= 0)
-            {
-                result.Issues.Add("最低价无效或为0");
-            }
+            // 价格数据检查 - 仅当有实时价格数据时才验证
+            // 如果是从数据库加载的股票列表（价格都是0），跳过价格验证
+            bool hasRealTimePrice = realTimeData.NewPrice > 0 || realTimeData.Open > 0 || realTimeData.High > 0;
 
-            // 检查价格逻辑性
-            if (realTimeData.High < realTimeData.Low)
+            if (hasRealTimePrice)
             {
-                result.Issues.Add("最高价小于最低价");
-            }
-            if (realTimeData.NewPrice < realTimeData.Low || realTimeData.NewPrice > realTimeData.High)
-            {
-                result.Issues.Add("最新价不在最低价和最高价范围内");
-            }
-
-            // 检查成交量
-            if (realTimeData.Volume < 0)
-            {
-                result.Issues.Add("成交量为负数");
-            }
-
-            // 检查更新时间（数据不应超过1天）
-            if (realTimeData.UpdateTime != default(DateTime))
-            {
-                var age = DateTime.Now - realTimeData.UpdateTime;
-                if (age.TotalDays > 1)
+                // 检查价格数据
+                if (realTimeData.NewPrice <= 0)
                 {
-                    result.Issues.Add($"数据过期（{age.TotalDays:F1}天前）");
+                    result.Issues.Add("最新价无效或为0");
+                }
+                if (realTimeData.LastClose <= 0)
+                {
+                    result.Issues.Add("昨收价无效或为0");
+                }
+                if (realTimeData.Open <= 0)
+                {
+                    result.Issues.Add("开盘价无效或为0");
+                }
+                if (realTimeData.High <= 0)
+                {
+                    result.Issues.Add("最高价无效或为0");
+                }
+                if (realTimeData.Low <= 0)
+                {
+                    result.Issues.Add("最低价无效或为0");
+                }
+
+                // 检查价格逻辑性
+                if (realTimeData.High < realTimeData.Low)
+                {
+                    result.Issues.Add("最高价小于最低价");
+                }
+                if (realTimeData.NewPrice < realTimeData.Low || realTimeData.NewPrice > realTimeData.High)
+                {
+                    result.Issues.Add("最新价不在最低价和最高价范围内");
+                }
+
+                // 检查成交量
+                if (realTimeData.Volume < 0)
+                {
+                    result.Issues.Add("成交量为负数");
                 }
             }
+
+            // 跳过更新时间检查 - 对于从数据库加载的数据不适用
 
             result.IsValid = result.Issues.Count == 0;
             return result;
