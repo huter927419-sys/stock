@@ -22,6 +22,11 @@ namespace MQReceiver.Services
     /// 负责定时执行股票过滤
     /// 使用事件模式通知订阅者（如UI层），实现解耦
     /// 线程安全：使用volatile确保多线程间的可见性
+    ///
+    /// 数据边界管理：
+    /// - 盘前/非交易日：使用数据库历史数据
+    /// - 盘中：合并实时数据和历史数据
+    /// - 盘后：检查当日数据是否已入库
     /// </summary>
     public class FilterService : IDisposable
     {
@@ -30,6 +35,7 @@ namespace MQReceiver.Services
         private KDCalculator kdCalculator;
         private StockFilter stockFilter;  // 保留旧版本用于兼容
         private StockFilterOrchestrator filterOrchestrator;  // 新的过滤器协调器
+        private DataBoundaryManager dataBoundaryManager;  // 数据边界管理器
         private System.Timers.Timer filterTimer;
         private readonly object _timerLock = new object();
         private int intervalMinutes;
@@ -60,6 +66,11 @@ namespace MQReceiver.Services
         /// 获取KD计算器（只读访问）
         /// </summary>
         public KDCalculator KDCalculator => kdCalculator;
+
+        /// <summary>
+        /// 获取数据边界管理器（只读访问）
+        /// </summary>
+        public DataBoundaryManager DataBoundaryManager => dataBoundaryManager;
 
         /// <summary>
         /// 服务是否正在运行
@@ -126,10 +137,16 @@ namespace MQReceiver.Services
                         Console.WriteLine($"使用外部共享缓存（当前数据量: {realTimeCache.Count}）");
                     }
 
-                    kdCalculator = new KDCalculator();
+                    // 初始化数据边界管理器
+                    dataBoundaryManager = new DataBoundaryManager(realTimeCache);
+                    Console.WriteLine("数据边界管理器初始化成功");
+
+                    // 使用依赖注入创建KD计算器（支持实时数据合并）
+                    var klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
+                    kdCalculator = new KDCalculator(klineRepository, realTimeCache, dataBoundaryManager);
                     stockFilter = new StockFilter(kdCalculator, realTimeCache);  // 保留旧版本
                     filterOrchestrator = new StockFilterOrchestrator(kdCalculator, realTimeCache);  // 新版本
-                    Console.WriteLine("KD计算器初始化成功");
+                    Console.WriteLine("KD计算器初始化成功（支持实时数据合并）");
                 }
                 catch (Exception ex)
                 {
@@ -335,6 +352,7 @@ namespace MQReceiver.Services
                     kdCalculator = null;
                     stockFilter = null;
                     filterOrchestrator = null;
+                    dataBoundaryManager = null;
 
                     // 清理事件订阅
                     FilterCompleted = null;
@@ -443,13 +461,23 @@ namespace MQReceiver.Services
                 // 记录开始时间
                 var stopwatch = Stopwatch.StartNew();
 
-                // 获取数据库中最新的交易日期，而不是使用今天的日期
+                // 使用数据边界管理器决定目标日期和数据策略
                 var repository = new PostgresStockDataRepository();
-                DateTime? latestDate = repository.GetLatestTradeDate();
-                DateTime targetDate = latestDate ?? DateTime.Now.Date;
+                DateTime? latestDbDate = repository.GetLatestTradeDate();
+                DataStatus dataStatus = dataBoundaryManager.GetCurrentDataStatus(latestDbDate);
+                DateTime targetDate = dataStatus.RecommendedTargetDate;
 
-                Console.WriteLine($"使用的目标日期: {targetDate:yyyy-MM-dd}" +
-                    (latestDate.HasValue ? " (数据库最新日期)" : " (当前日期)"));
+                // 输出数据状态信息
+                Console.WriteLine($"当前时段: {DataBoundaryManager.GetSessionDescription(dataStatus.Session)}");
+                Console.WriteLine($"数据策略: {DataBoundaryManager.GetStrategyDescription(dataStatus.Strategy)}");
+                Console.WriteLine($"目标日期: {targetDate:yyyy-MM-dd}");
+                Console.WriteLine($"数据库最新日期: {(latestDbDate.HasValue ? latestDbDate.Value.ToString("yyyy-MM-dd") : "无")}");
+                if (dataStatus.Strategy == DataSourceStrategy.DatabasePlusRealTime)
+                {
+                    Console.WriteLine($"实时缓存数量: {dataStatus.RealTimeCacheCount}");
+                    Console.WriteLine($"实时数据状态: {(dataStatus.IsDataFresh ? "新鲜" : "可能延迟")}");
+                }
+                Console.WriteLine($"状态描述: {dataStatus.StatusDescription}");
 
                 // ========== 过滤条件1：周K、月K、季K 金叉过滤 ==========
                 Console.WriteLine("【过滤条件1】周K、月K、季K 金叉过滤");

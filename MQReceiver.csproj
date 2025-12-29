@@ -159,6 +159,9 @@
     <Compile Include="src\DataProcessing\Repositories\DailyDataDBWriter.cs" />
     <Compile Include="src\DataProcessing\Repositories\RealTimeDataDBWriter.cs" />
     <Compile Include="src\DataProcessing\Repositories\ExRightsDataDBWriter.cs" />
+    <!-- src/Core/Services -->
+    <Compile Include="src\Core\Services\TradingCalendar.cs" />
+    <Compile Include="src\Core\Services\DataBoundaryManager.cs" />
     <!-- src/DataProcessing/Services -->
     <Compile Include="src\DataProcessing\DataPreloadService.cs" />
     <!-- src/MQ -->

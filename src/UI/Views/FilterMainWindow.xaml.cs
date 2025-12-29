@@ -590,6 +590,56 @@ namespace MQReceiver.Views
                     CacheUpdateTimeText.Text = "更新时间: 从未更新";
                 }
             }
+
+            // 更新数据状态显示
+            UpdateDataStatusDisplay();
+        }
+
+        /// <summary>
+        /// 更新数据状态显示
+        /// </summary>
+        private void UpdateDataStatusDisplay()
+        {
+            try
+            {
+                if (_filterService != null && _filterService.DataBoundaryManager != null)
+                {
+                    var dataStatus = _filterService.DataBoundaryManager.GetCurrentDataStatus();
+                    string sessionDesc = DataBoundaryManager.GetSessionDescription(dataStatus.Session);
+                    string strategyDesc = DataBoundaryManager.GetStrategyDescription(dataStatus.Strategy);
+
+                    TradingSessionText.Text = sessionDesc;
+                    DataStatusText.Text = $"数据: {strategyDesc}";
+
+                    // 根据数据是否新鲜设置指示器颜色
+                    if (dataStatus.IsDataFresh)
+                    {
+                        DataStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x4E, 0xCD, 0x4E)); // 绿色
+                    }
+                    else
+                    {
+                        DataStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0x9E, 0x4E)); // 橙色警告
+                    }
+                }
+                else
+                {
+                    // 使用临时的数据边界管理器
+                    var tempManager = new DataBoundaryManager(_sharedCache);
+                    var dataStatus = tempManager.GetCurrentDataStatus();
+                    string sessionDesc = DataBoundaryManager.GetSessionDescription(dataStatus.Session);
+
+                    TradingSessionText.Text = sessionDesc;
+                    DataStatusText.Text = "数据: 等待初始化";
+                    DataStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x6E, 0x6E, 0x6E)); // 灰色
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"更新数据状态显示失败: {ex.Message}");
+                DataStatusText.Text = "数据: 状态未知";
+                TradingSessionText.Text = "";
+                DataStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x6E, 0x6E, 0x6E)); // 灰色
+            }
         }
 
         #endregion

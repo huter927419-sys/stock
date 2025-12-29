@@ -4,12 +4,15 @@ using System.Linq;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
 using MQReceiver.Repositories;
+using MQReceiver.Services;
+using MQReceiver.Cache;
 
 namespace MQReceiver.Calculators
 {
     /// <summary>
     /// KD指标计算器
     /// 支持周、月、季周期的KD指标计算
+    /// 支持盘中实时数据合并计算
     ///
     /// KD指标计算公式：
     /// 1. RSV = (收盘价 - 最低价) / (最高价 - 最低价) * 100
@@ -20,7 +23,14 @@ namespace MQReceiver.Calculators
     {
         private readonly string connectionString;
         private readonly IKlineDataRepository _klineRepository;
+        private readonly RealTimeDataCache _realTimeCache;
+        private readonly DataBoundaryManager _dataBoundaryManager;
         private const int DEFAULT_PERIOD = 9; // 默认周期为9
+
+        /// <summary>
+        /// 是否启用实时数据合并（盘中计算时使用）
+        /// </summary>
+        public bool EnableRealTimeDataMerge { get; set; } = true;
 
         // 调试用变量 - 按周期类型分别记录
         private static bool _debugWeekLogged = false;
@@ -44,6 +54,17 @@ namespace MQReceiver.Calculators
         public KDCalculator(IKlineDataRepository klineRepository)
         {
             _klineRepository = klineRepository ?? throw new ArgumentNullException(nameof(klineRepository));
+            connectionString = DatabaseConnectionHelper.BuildConnectionString();
+        }
+
+        /// <summary>
+        /// 使用仓储和实时数据缓存初始化（完整依赖注入）
+        /// </summary>
+        public KDCalculator(IKlineDataRepository klineRepository, RealTimeDataCache realTimeCache, DataBoundaryManager dataBoundaryManager)
+        {
+            _klineRepository = klineRepository ?? throw new ArgumentNullException(nameof(klineRepository));
+            _realTimeCache = realTimeCache;
+            _dataBoundaryManager = dataBoundaryManager ?? new DataBoundaryManager(realTimeCache);
             connectionString = DatabaseConnectionHelper.BuildConnectionString();
         }
 
@@ -294,6 +315,7 @@ namespace MQReceiver.Calculators
 
         /// <summary>
         /// 获取聚合后的K线数据
+        /// 支持盘中实时数据合并
         /// </summary>
         private List<AggregatedCandle> GetAggregatedData(string stockCode, DateTime targetDate, int period, string cycleType)
         {
@@ -301,14 +323,28 @@ namespace MQReceiver.Calculators
 
             try
             {
+                // 获取数据边界状态
+                DataStatus dataStatus = null;
+                if (_dataBoundaryManager != null)
+                {
+                    var dateRange = _klineRepository.GetDataDateRange(stockCode);
+                    dataStatus = _dataBoundaryManager.GetCurrentDataStatus(dateRange.EndDate);
+                }
+
                 // 检查股票的数据范围，如果targetDate超出范围，使用股票的最新可用日期
-                var dateRange = _klineRepository.GetDataDateRange(stockCode);
+                var stockDateRange = _klineRepository.GetDataDateRange(stockCode);
                 DateTime actualTargetDate = targetDate;
 
-                if (dateRange.EndDate.HasValue && targetDate > dateRange.EndDate.Value)
+                // 根据数据状态调整目标日期
+                if (dataStatus != null && EnableRealTimeDataMerge)
+                {
+                    // 使用数据边界管理器推荐的目标日期
+                    actualTargetDate = dataStatus.RecommendedTargetDate;
+                }
+                else if (stockDateRange.EndDate.HasValue && targetDate > stockDateRange.EndDate.Value)
                 {
                     // 目标日期超出股票数据范围，使用股票的最新数据日期
-                    actualTargetDate = dateRange.EndDate.Value;
+                    actualTargetDate = stockDateRange.EndDate.Value;
                 }
 
                 // 根据周期类型确定需要获取的数据范围
@@ -329,8 +365,24 @@ namespace MQReceiver.Calculators
                         break;
                 }
 
-                // 通过仓储接口获取数据
+                // 通过仓储接口获取数据库历史数据
                 var dailyData = _klineRepository.GetDailyData(stockCode, startDate, actualTargetDate);
+
+                // 盘中实时数据合并
+                if (EnableRealTimeDataMerge && _dataBoundaryManager != null && _realTimeCache != null &&
+                    dataStatus != null && dataStatus.Strategy == DataSourceStrategy.DatabasePlusRealTime)
+                {
+                    // 获取实时数据
+                    var realTimeData = _realTimeCache.GetData(stockCode);
+                    if (realTimeData != null)
+                    {
+                        // 合并实时数据到历史数据
+                        dailyData = _dataBoundaryManager.MergeHistoryAndRealTime(
+                            dailyData.ToList(),
+                            realTimeData,
+                            DateTime.Now.Date);
+                    }
+                }
 
                 // 转换为内部格式
                 foreach (var data in dailyData)

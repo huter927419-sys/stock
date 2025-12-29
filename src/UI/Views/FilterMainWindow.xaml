@@ -102,6 +102,14 @@
                 <!-- 分隔符 -->
                 <Rectangle Width="1" Height="20" Fill="#3F3F46" Margin="15,0,15,0"/>
 
+                <!-- 数据状态显示 -->
+                <Ellipse x:Name="DataStatusIndicator" Width="10" Height="10" Fill="#6E6E6E" VerticalAlignment="Center"/>
+                <TextBlock x:Name="DataStatusText" Text="数据状态: 未知" FontSize="10" Foreground="#858585" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                <TextBlock x:Name="TradingSessionText" Text="" FontSize="10" Foreground="#6E6E6E" VerticalAlignment="Center" Margin="8,0,0,0"/>
+
+                <!-- 分隔符 -->
+                <Rectangle Width="1" Height="20" Fill="#3F3F46" Margin="15,0,15,0"/>
+
                 <Button Content="刷新" Margin="0,0,0,0"
                         Click="RefreshButton_Click" Width="80" Height="32"
                         Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A">
