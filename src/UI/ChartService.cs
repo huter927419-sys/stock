@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MQReceiver.Cache;
 using MQReceiver.Calculators;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
@@ -246,38 +247,11 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 获取股票名称
+        /// 获取股票名称（从内存缓存获取，性能更好）
         /// </summary>
         private string GetStockName(string stockCode)
         {
-            try
-            {
-                using (var conn = new NpgsqlConnection(connectionString))
-                {
-                    conn.Open();
-                    string sql = @"
-                        SELECT stock_name
-                        FROM stock_realtime_data
-                        WHERE stock_code = @stock_code
-                        LIMIT 1";
-
-                    using (var cmd = new NpgsqlCommand(sql, conn))
-                    {
-                        cmd.Parameters.AddWithValue("@stock_code", stockCode);
-                        var result = cmd.ExecuteScalar();
-                        if (result != null && result != DBNull.Value)
-                        {
-                            return result.ToString();
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // 忽略错误，返回股票代码
-            }
-
-            return stockCode;
+            return StockInfoCache.Instance.GetStockName(stockCode);
         }
     }
 }

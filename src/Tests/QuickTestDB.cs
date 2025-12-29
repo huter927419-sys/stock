@@ -2,6 +2,7 @@ using System;
 using System.Configuration;
 using Npgsql;
 using MQReceiver.Helpers;
+using MQReceiver.Cache;
 
 namespace MQReceiver
 {
@@ -28,6 +29,11 @@ namespace MQReceiver
             TestRedis();
 
             Console.WriteLine();
+            Console.WriteLine();
+
+            // 同步股票信息表
+            SyncStockInfo();
+
             Console.WriteLine();
 
             // 测试KD过滤器
@@ -210,5 +216,27 @@ namespace MQReceiver
                 Console.WriteLine("  (Redis可选，不影响核心功能)");
             }
         }
+
+        static void SyncStockInfo()
+        {
+            Console.WriteLine("【股票信息同步】");
+            Console.WriteLine("----------------------------------------");
+
+            try
+            {
+                Console.WriteLine("从日线数据同步股票代码到stock_info表...");
+                Console.WriteLine();
+
+                int newCount = StockInfoCache.Instance.SyncFromDailyData();
+
+                Console.WriteLine();
+                Console.WriteLine($"✓ 同步完成，缓存中共有 {StockInfoCache.Instance.Count} 条股票信息");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"✗ 同步失败: {ex.Message}");
+            }
+        }
+
     }
 }

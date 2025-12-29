@@ -458,9 +458,28 @@ namespace MQReceiver.Services
 
                     if (stockInfoList.Count > 0)
                     {
-                        var repository = new PostgresStockDataRepository();
-                        int savedCount = repository.SaveStockInfo(stockInfoList);
-                        Console.WriteLine("成功保存 {0} 条股票信息到数据库", savedCount);
+                        // 1. 先更新内存缓存（立即生效，无延迟）
+                        foreach (var info in stockInfoList)
+                        {
+                            StockInfoCache.Instance.UpdateStockInfo(info.StockCode, info.StockName, info.MarketCode);
+                        }
+                        Console.WriteLine("已更新 {0} 条股票信息到内存缓存", stockInfoList.Count);
+
+                        // 2. 异步保存到数据库（后台执行，不阻塞主流程）
+                        var listToSave = new List<(string StockCode, string StockName, ushort MarketCode)>(stockInfoList);
+                        System.Threading.Tasks.Task.Run(() =>
+                        {
+                            try
+                            {
+                                var repository = new PostgresStockDataRepository();
+                                int savedCount = repository.SaveStockInfo(listToSave);
+                                Console.WriteLine("异步保存 {0} 条股票信息到数据库完成", savedCount);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine("异步保存股票信息到数据库失败: {0}", ex.Message);
+                            }
+                        });
                     }
 
                     // 将码表数据更新到实时数据缓存中（更新股票名称）

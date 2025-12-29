@@ -124,6 +124,7 @@
     <Compile Include="Program.cs" />
     <!-- src/Core/Cache -->
     <Compile Include="src\Core\Cache\RealTimeDataCache.cs" />
+    <Compile Include="src\Core\Cache\StockInfoCache.cs" />
     <!-- src/Core/Configuration -->
     <Compile Include="src\Core\Configuration\IConfigurationProvider.cs" />
     <Compile Include="src\Core\Configuration\AppConfigProvider.cs" />

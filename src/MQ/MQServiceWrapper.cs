@@ -479,35 +479,75 @@ namespace MQReceiver.Services
             {
                 List<MarketTableDataRecord> records = StockDataParser.ParseMarketTableData(jsonData);
 
-                if (records.Count > 0 && realTimeCache != null)
+                if (records.Count > 0)
                 {
-                    int updatedCount = 0;
+                    // 1. 更新 StockInfoCache（股票名称缓存）和异步保存到数据库
+                    var stockInfoList = new List<(string StockCode, string StockName, ushort MarketCode)>();
                     foreach (var record in records)
                     {
-                        if (string.IsNullOrEmpty(record.StockCode))
-                            continue;
-
-                        var existingRecord = realTimeCache.GetData(record.StockCode);
-                        if (existingRecord != null)
+                        if (!string.IsNullOrEmpty(record.StockCode) && !string.IsNullOrEmpty(record.StockName))
                         {
-                            existingRecord.StockName = record.StockName;
-                            realTimeCache.UpdateData(existingRecord);
-                            updatedCount++;
-                        }
-                        else
-                        {
-                            var newRecord = new RealTimeDataRecord
-                            {
-                                StockCode = record.StockCode,
-                                StockName = record.StockName,
-                                MarketCode = (ushort)record.MarketCode,
-                                UpdateTime = record.UpdateTime
-                            };
-                            realTimeCache.UpdateData(newRecord);
-                            updatedCount++;
+                            stockInfoList.Add((record.StockCode, record.StockName, (ushort)record.MarketCode));
                         }
                     }
-                    Log($"成功更新 {updatedCount} 条码表数据到内存缓存（当前缓存数量: {realTimeCache.Count}）");
+
+                    if (stockInfoList.Count > 0)
+                    {
+                        // 更新内存缓存（立即生效）
+                        foreach (var info in stockInfoList)
+                        {
+                            StockInfoCache.Instance.UpdateStockInfo(info.StockCode, info.StockName, info.MarketCode);
+                        }
+                        Log($"已更新 {stockInfoList.Count} 条股票信息到 StockInfoCache");
+
+                        // 异步保存到数据库
+                        var listToSave = new List<(string StockCode, string StockName, ushort MarketCode)>(stockInfoList);
+                        System.Threading.Tasks.Task.Run(() =>
+                        {
+                            try
+                            {
+                                var repository = new PostgresStockDataRepository();
+                                int savedCount = repository.SaveStockInfo(listToSave);
+                                Log($"异步保存 {savedCount} 条股票信息到数据库完成");
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"异步保存股票信息到数据库失败: {ex.Message}");
+                            }
+                        });
+                    }
+
+                    // 2. 更新 realTimeCache（实时数据缓存）
+                    if (realTimeCache != null)
+                    {
+                        int updatedCount = 0;
+                        foreach (var record in records)
+                        {
+                            if (string.IsNullOrEmpty(record.StockCode))
+                                continue;
+
+                            var existingRecord = realTimeCache.GetData(record.StockCode);
+                            if (existingRecord != null)
+                            {
+                                existingRecord.StockName = record.StockName;
+                                realTimeCache.UpdateData(existingRecord);
+                                updatedCount++;
+                            }
+                            else
+                            {
+                                var newRecord = new RealTimeDataRecord
+                                {
+                                    StockCode = record.StockCode,
+                                    StockName = record.StockName,
+                                    MarketCode = (ushort)record.MarketCode,
+                                    UpdateTime = record.UpdateTime
+                                };
+                                realTimeCache.UpdateData(newRecord);
+                                updatedCount++;
+                            }
+                        }
+                        Log($"成功更新 {updatedCount} 条码表数据到实时缓存（当前缓存数量: {realTimeCache.Count}）");
+                    }
                 }
             }
             catch (Exception ex)

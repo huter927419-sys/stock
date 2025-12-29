@@ -36,8 +36,43 @@ namespace MQReceiver.Views
             // 创建共享缓存
             _sharedCache = new RealTimeDataCache();
 
+            // 初始化股票信息缓存（从数据库加载或同步）
+            InitializeStockInfoCache();
+
             // 更新缓存状态显示
             UpdateCacheStatus();
+        }
+
+        /// <summary>
+        /// 初始化股票信息缓存
+        /// 如果stock_info表为空或记录较少，会自动从日线数据同步
+        /// 会自动从本地SQL文件导入股票名称
+        /// </summary>
+        private void InitializeStockInfoCache()
+        {
+            try
+            {
+                // 先修复可能存在的错误数据（stock_name为null或market_code错误，并从SQL文件导入名称）
+                StockInfoCache.Instance.FixStockInfoData();
+
+                // 加载缓存
+                StockInfoCache.Instance.LoadFromDatabase();
+
+                // 如果缓存为空，执行同步
+                if (StockInfoCache.Instance.Count == 0)
+                {
+                    Console.WriteLine("[FilterMainWindow] 股票信息缓存为空，正在从日线数据同步...");
+                    StockInfoCache.Instance.SyncFromDailyData();
+                }
+                else
+                {
+                    Console.WriteLine($"[FilterMainWindow] 股票信息缓存已加载: {StockInfoCache.Instance.Count} 条记录");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FilterMainWindow] 初始化股票信息缓存失败: {ex.Message}");
+            }
         }
 
         /// <summary>
