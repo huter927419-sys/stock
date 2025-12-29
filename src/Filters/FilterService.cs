@@ -479,12 +479,12 @@ namespace MQReceiver.Services
                 }
                 Console.WriteLine($"状态描述: {dataStatus.StatusDescription}");
 
-                // ========== 过滤条件1：周K、月K、季K 金叉过滤 ==========
-                Console.WriteLine("【过滤条件1】周K、月K、季K 金叉过滤");
+                // ========== 表格一：月K > 季K AND 周K上穿月K ==========
+                Console.WriteLine("【表格一】月K > 季K AND 周K上穿月K");
                 Console.WriteLine("----------------------------------------");
-                var condition1 = FilterConditionBuilder.BuildGoldenCrossCondition();
+                var condition1 = FilterConditionBuilder.BuildTable1Condition();
                 var sw1 = Stopwatch.StartNew();
-                var results1 = filterOrchestrator.FilterByGoldenCrossParallel(condition1, targetDate);
+                var results1 = filterOrchestrator.FilterByTable1Parallel(condition1, targetDate);
                 sw1.Stop();
                 Console.WriteLine("结果数量: {0} 只股票", results1.Count);
                 Console.WriteLine("处理时间: {0:F2} 秒", sw1.Elapsed.TotalSeconds);
@@ -493,14 +493,13 @@ namespace MQReceiver.Services
                 // 获取昨天的K值并排序
                 var enrichedResults1 = FilterDisplayHelper.EnrichWithHistory(results1, kdCalculator, targetDate);
                 enrichedResults1 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults1, descending: true);
-                Console.WriteLine($"条件1结果: {enrichedResults1.Count} 只股票");
 
-                // ========== 过滤条件2：周K>月K>季K（不含金叉） ==========
-                Console.WriteLine("【过滤条件2】周K>月K>季K（不含金叉）");
+                // ========== 表格二：月K > 季K AND 周K > 月K（不含上穿当天） ==========
+                Console.WriteLine("【表格二】月K > 季K AND 周K > 月K（不含上穿当天）");
                 Console.WriteLine("----------------------------------------");
-                var condition2 = FilterConditionBuilder.BuildKValueOrderCondition();
+                var condition2 = FilterConditionBuilder.BuildTable2Condition();
                 var sw2 = Stopwatch.StartNew();
-                var results2 = filterOrchestrator.FilterByKValueOrderParallel(condition2, targetDate);
+                var results2 = filterOrchestrator.FilterByTable2Parallel(condition2, targetDate);
                 sw2.Stop();
                 Console.WriteLine("结果数量: {0} 只股票", results2.Count);
                 Console.WriteLine("处理时间: {0:F2} 秒", sw2.Elapsed.TotalSeconds);
@@ -509,14 +508,13 @@ namespace MQReceiver.Services
                 // 获取昨天的K值并排序
                 var enrichedResults2 = FilterDisplayHelper.EnrichWithHistory(results2, kdCalculator, targetDate);
                 enrichedResults2 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults2, descending: true);
-                Console.WriteLine($"条件2结果: {enrichedResults2.Count} 只股票");
 
-                // ========== 过滤条件3：月K>季K or 周K<月K ==========
-                Console.WriteLine("【过滤条件3】月K>季K or 周K<月K");
+                // ========== 表格三：月K < 季K AND 周K上穿季K ==========
+                Console.WriteLine("【表格三】月K < 季K AND 周K上穿季K");
                 Console.WriteLine("----------------------------------------");
-                var condition3 = FilterConditionBuilder.BuildKValueRelationCondition();
+                var condition3 = FilterConditionBuilder.BuildTable3Condition();
                 var sw3 = Stopwatch.StartNew();
-                var results3 = filterOrchestrator.FilterByKValueRelationParallel(condition3, targetDate);
+                var results3 = filterOrchestrator.FilterByTable3Parallel(condition3, targetDate);
                 sw3.Stop();
                 Console.WriteLine("结果数量: {0} 只股票", results3.Count);
                 Console.WriteLine("处理时间: {0:F2} 秒", sw3.Elapsed.TotalSeconds);
@@ -525,16 +523,63 @@ namespace MQReceiver.Services
                 // 获取昨天的K值并排序
                 var enrichedResults3 = FilterDisplayHelper.EnrichWithHistory(results3, kdCalculator, targetDate);
                 enrichedResults3 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults3, descending: true);
-                Console.WriteLine($"条件3结果: {enrichedResults3.Count} 只股票");
+
+                // ========== 表格四：月K < 季K AND 周K > 季K（不含上穿当天） ==========
+                Console.WriteLine("【表格四】月K < 季K AND 周K > 季K（不含上穿当天）");
+                Console.WriteLine("----------------------------------------");
+                var condition4 = FilterConditionBuilder.BuildTable4Condition();
+                var sw4 = Stopwatch.StartNew();
+                var results4 = filterOrchestrator.FilterByTable4Parallel(condition4, targetDate);
+                sw4.Stop();
+                Console.WriteLine("结果数量: {0} 只股票", results4.Count);
+                Console.WriteLine("处理时间: {0:F2} 秒", sw4.Elapsed.TotalSeconds);
+                Console.WriteLine();
+
+                // 获取昨天的K值并排序
+                var enrichedResults4 = FilterDisplayHelper.EnrichWithHistory(results4, kdCalculator, targetDate);
+                enrichedResults4 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults4, descending: true);
+
+                // ========== 表格五：月K > 季K AND 周K < 月K ==========
+                Console.WriteLine("【表格五】月K > 季K AND 周K < 月K");
+                Console.WriteLine("----------------------------------------");
+                var condition5 = FilterConditionBuilder.BuildTable5Condition();
+                var sw5 = Stopwatch.StartNew();
+                var results5 = filterOrchestrator.FilterByTable5Parallel(condition5, targetDate);
+                sw5.Stop();
+                Console.WriteLine("结果数量: {0} 只股票", results5.Count);
+                Console.WriteLine("处理时间: {0:F2} 秒", sw5.Elapsed.TotalSeconds);
+                Console.WriteLine();
+
+                // 获取昨天的K值并排序
+                var enrichedResults5 = FilterDisplayHelper.EnrichWithHistory(results5, kdCalculator, targetDate);
+                enrichedResults5 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults5, descending: true);
+
+                // ========== 表格六：月K < 季K AND 周K < 季K ==========
+                Console.WriteLine("【表格六】月K < 季K AND 周K < 季K");
+                Console.WriteLine("----------------------------------------");
+                var condition6 = FilterConditionBuilder.BuildTable6Condition();
+                var sw6 = Stopwatch.StartNew();
+                var results6 = filterOrchestrator.FilterByTable6Parallel(condition6, targetDate);
+                sw6.Stop();
+                Console.WriteLine("结果数量: {0} 只股票", results6.Count);
+                Console.WriteLine("处理时间: {0:F2} 秒", sw6.Elapsed.TotalSeconds);
+                Console.WriteLine();
+
+                // 获取昨天的K值并排序
+                var enrichedResults6 = FilterDisplayHelper.EnrichWithHistory(results6, kdCalculator, targetDate);
+                enrichedResults6 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults6, descending: true);
 
                 stopwatch.Stop();
 
                 // 通过事件通知订阅者（UI层）
                 OnFilterCompleted(new FilterResultEventArgs
                 {
-                    Condition1Results = enrichedResults1,
-                    Condition2Results = enrichedResults2,
-                    Condition3Results = enrichedResults3,
+                    Table1Results = enrichedResults1,
+                    Table2Results = enrichedResults2,
+                    Table3Results = enrichedResults3,
+                    Table4Results = enrichedResults4,
+                    Table5Results = enrichedResults5,
+                    Table6Results = enrichedResults6,
                     FilterTime = DateTime.Now,
                     ElapsedSeconds = stopwatch.Elapsed.TotalSeconds,
                     ProcessedCount = realTimeCache.Count

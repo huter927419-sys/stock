@@ -116,9 +116,12 @@ namespace MQReceiver.Views
         public void UpdateResults(
             List<FilterResultWithHistory> results1,
             List<FilterResultWithHistory> results2,
-            List<FilterResultWithHistory> results3)
+            List<FilterResultWithHistory> results3,
+            List<FilterResultWithHistory> results4,
+            List<FilterResultWithHistory> results5,
+            List<FilterResultWithHistory> results6)
         {
-            _viewModel.UpdateResults(results1, results2, results3);
+            _viewModel.UpdateResults(results1, results2, results3, results4, results5, results6);
         }
 
         /// <summary>
@@ -194,65 +197,128 @@ namespace MQReceiver.Views
         public event EventHandler RefreshRequested;
 
         /// <summary>
-        /// 条件1设置按钮点击
+        /// 表格1设置按钮点击
         /// </summary>
-        private void Condition1Settings_Click(object sender, RoutedEventArgs e)
+        private void Table1Settings_Click(object sender, RoutedEventArgs e)
         {
             if (_viewModel == null) return;
 
             var dialog = new FilterSettingsDialog(
-                _viewModel.Condition1WeeklyKDefaultMin,
-                _viewModel.Condition1MonthlyKDefaultMin,
-                _viewModel.Condition1QuarterlyKDefaultMin);
+                _viewModel.Table1WeeklyKDefaultMin,
+                _viewModel.Table1MonthlyKDefaultMin,
+                _viewModel.Table1QuarterlyKDefaultMin);
             dialog.Owner = this;
 
             if (dialog.ShowDialog() == true)
             {
-                _viewModel.Condition1WeeklyKDefaultMin = dialog.WeeklyKMin;
-                _viewModel.Condition1MonthlyKDefaultMin = dialog.MonthlyKMin;
-                _viewModel.Condition1QuarterlyKDefaultMin = dialog.QuarterlyKMin;
+                _viewModel.Table1WeeklyKDefaultMin = dialog.WeeklyKMin;
+                _viewModel.Table1MonthlyKDefaultMin = dialog.MonthlyKMin;
+                _viewModel.Table1QuarterlyKDefaultMin = dialog.QuarterlyKMin;
             }
         }
 
         /// <summary>
-        /// 条件2设置按钮点击
+        /// 表格2设置按钮点击
         /// </summary>
-        private void Condition2Settings_Click(object sender, RoutedEventArgs e)
+        private void Table2Settings_Click(object sender, RoutedEventArgs e)
         {
             if (_viewModel == null) return;
 
             var dialog = new FilterSettingsDialog(
-                _viewModel.Condition2WeeklyKDefaultMin,
-                _viewModel.Condition2MonthlyKDefaultMin,
-                _viewModel.Condition2QuarterlyKDefaultMin);
+                _viewModel.Table2WeeklyKDefaultMin,
+                _viewModel.Table2MonthlyKDefaultMin,
+                _viewModel.Table2QuarterlyKDefaultMin);
             dialog.Owner = this;
 
             if (dialog.ShowDialog() == true)
             {
-                _viewModel.Condition2WeeklyKDefaultMin = dialog.WeeklyKMin;
-                _viewModel.Condition2MonthlyKDefaultMin = dialog.MonthlyKMin;
-                _viewModel.Condition2QuarterlyKDefaultMin = dialog.QuarterlyKMin;
+                _viewModel.Table2WeeklyKDefaultMin = dialog.WeeklyKMin;
+                _viewModel.Table2MonthlyKDefaultMin = dialog.MonthlyKMin;
+                _viewModel.Table2QuarterlyKDefaultMin = dialog.QuarterlyKMin;
             }
         }
 
         /// <summary>
-        /// 条件3设置按钮点击
+        /// 表格3设置按钮点击
         /// </summary>
-        private void Condition3Settings_Click(object sender, RoutedEventArgs e)
+        private void Table3Settings_Click(object sender, RoutedEventArgs e)
         {
             if (_viewModel == null) return;
 
             var dialog = new FilterSettingsDialog(
-                _viewModel.Condition3WeeklyKDefaultMin,
-                _viewModel.Condition3MonthlyKDefaultMin,
-                _viewModel.Condition3QuarterlyKDefaultMin);
+                _viewModel.Table3WeeklyKDefaultMin,
+                _viewModel.Table3MonthlyKDefaultMin,
+                _viewModel.Table3QuarterlyKDefaultMin);
             dialog.Owner = this;
 
             if (dialog.ShowDialog() == true)
             {
-                _viewModel.Condition3WeeklyKDefaultMin = dialog.WeeklyKMin;
-                _viewModel.Condition3MonthlyKDefaultMin = dialog.MonthlyKMin;
-                _viewModel.Condition3QuarterlyKDefaultMin = dialog.QuarterlyKMin;
+                _viewModel.Table3WeeklyKDefaultMin = dialog.WeeklyKMin;
+                _viewModel.Table3MonthlyKDefaultMin = dialog.MonthlyKMin;
+                _viewModel.Table3QuarterlyKDefaultMin = dialog.QuarterlyKMin;
+            }
+        }
+
+        /// <summary>
+        /// 表格4设置按钮点击
+        /// </summary>
+        private void Table4Settings_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel == null) return;
+
+            var dialog = new FilterSettingsDialog(
+                _viewModel.Table4WeeklyKDefaultMin,
+                _viewModel.Table4MonthlyKDefaultMin,
+                _viewModel.Table4QuarterlyKDefaultMin);
+            dialog.Owner = this;
+
+            if (dialog.ShowDialog() == true)
+            {
+                _viewModel.Table4WeeklyKDefaultMin = dialog.WeeklyKMin;
+                _viewModel.Table4MonthlyKDefaultMin = dialog.MonthlyKMin;
+                _viewModel.Table4QuarterlyKDefaultMin = dialog.QuarterlyKMin;
+            }
+        }
+
+        /// <summary>
+        /// 表格5设置按钮点击
+        /// </summary>
+        private void Table5Settings_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel == null) return;
+
+            var dialog = new FilterSettingsDialog(
+                _viewModel.Table5WeeklyKDefaultMin,
+                _viewModel.Table5MonthlyKDefaultMin,
+                _viewModel.Table5QuarterlyKDefaultMin);
+            dialog.Owner = this;
+
+            if (dialog.ShowDialog() == true)
+            {
+                _viewModel.Table5WeeklyKDefaultMin = dialog.WeeklyKMin;
+                _viewModel.Table5MonthlyKDefaultMin = dialog.MonthlyKMin;
+                _viewModel.Table5QuarterlyKDefaultMin = dialog.QuarterlyKMin;
+            }
+        }
+
+        /// <summary>
+        /// 表格6设置按钮点击
+        /// </summary>
+        private void Table6Settings_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel == null) return;
+
+            var dialog = new FilterSettingsDialog(
+                _viewModel.Table6WeeklyKDefaultMin,
+                _viewModel.Table6MonthlyKDefaultMin,
+                _viewModel.Table6QuarterlyKDefaultMin);
+            dialog.Owner = this;
+
+            if (dialog.ShowDialog() == true)
+            {
+                _viewModel.Table6WeeklyKDefaultMin = dialog.WeeklyKMin;
+                _viewModel.Table6MonthlyKDefaultMin = dialog.MonthlyKMin;
+                _viewModel.Table6QuarterlyKDefaultMin = dialog.QuarterlyKMin;
             }
         }
 
@@ -548,8 +614,8 @@ namespace MQReceiver.Views
         {
             Dispatcher.Invoke(() =>
             {
-                UpdateResults(e.Condition1Results, e.Condition2Results, e.Condition3Results);
-                AppendLog($"过滤完成: 条件1={e.Condition1Results?.Count ?? 0}, 条件2={e.Condition2Results?.Count ?? 0}, 条件3={e.Condition3Results?.Count ?? 0}");
+                UpdateResults(e.Table1Results, e.Table2Results, e.Table3Results, e.Table4Results, e.Table5Results, e.Table6Results);
+                AppendLog($"过滤完成: 表1={e.Table1Results?.Count ?? 0}, 表2={e.Table2Results?.Count ?? 0}, 表3={e.Table3Results?.Count ?? 0}, 表4={e.Table4Results?.Count ?? 0}, 表5={e.Table5Results?.Count ?? 0}, 表6={e.Table6Results?.Count ?? 0}");
                 UpdateCacheStatus();
             });
         }

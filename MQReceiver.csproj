@@ -173,9 +173,12 @@
     <Compile Include="src\Filters\FilterConditionBuilder.cs" />
     <Compile Include="src\Filters\IStockFilter.cs" />
     <Compile Include="src\Filters\BaseStockFilter.cs" />
-    <Compile Include="src\Filters\GoldenCrossFilter.cs" />
-    <Compile Include="src\Filters\KValueOrderFilter.cs" />
-    <Compile Include="src\Filters\KValueRelationFilter.cs" />
+    <Compile Include="src\Filters\Table1Filter.cs" />
+    <Compile Include="src\Filters\Table2Filter.cs" />
+    <Compile Include="src\Filters\Table3Filter.cs" />
+    <Compile Include="src\Filters\Table4Filter.cs" />
+    <Compile Include="src\Filters\Table5Filter.cs" />
+    <Compile Include="src\Filters\Table6Filter.cs" />
     <Compile Include="src\Filters\StockFilterOrchestrator.cs" />
     <Compile Include="src\Filters\StockFilter.cs" />
     <Compile Include="src\Filters\FilterService.cs" />

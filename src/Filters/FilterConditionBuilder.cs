@@ -21,15 +21,12 @@ namespace MQReceiver.Filters
         }
 
         /// <summary>
-        /// 从配置文件读取过滤条件1：周K、月K、季K 金叉过滤
+        /// 从配置文件读取表格一条件：月K > 季K AND 周K上穿月K
         /// </summary>
-        public static GoldenCrossCondition BuildGoldenCrossCondition()
+        public static Table1Condition BuildTable1Condition()
         {
-            return new GoldenCrossCondition
+            return new Table1Condition
             {
-                RequireWeeklyGoldenCross = _configProvider.GetBool("Filter1_RequireWeeklyGoldenCross", true),
-                RequireMonthlyGoldenCross = _configProvider.GetBool("Filter1_RequireMonthlyGoldenCross", true),
-                RequireQuarterlyGoldenCross = _configProvider.GetBool("Filter1_RequireQuarterlyGoldenCross", true),
                 WeeklyKDefaultMin = _configProvider.GetDecimal("Filter1_WeeklyKDefaultMin", 0),
                 MonthlyKDefaultMin = _configProvider.GetDecimal("Filter1_MonthlyKDefaultMin", 0),
                 QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter1_QuarterlyKDefaultMin", 0),
@@ -45,11 +42,11 @@ namespace MQReceiver.Filters
         }
 
         /// <summary>
-        /// 从配置文件读取过滤条件2：周K>月K>季K（不含金叉）
+        /// 从配置文件读取表格二条件：月K > 季K AND 周K > 月K（不含上穿当天）
         /// </summary>
-        public static KValueOrderCondition BuildKValueOrderCondition()
+        public static Table2Condition BuildTable2Condition()
         {
-            return new KValueOrderCondition
+            return new Table2Condition
             {
                 WeeklyKDefaultMin = _configProvider.GetDecimal("Filter2_WeeklyKDefaultMin", 0),
                 MonthlyKDefaultMin = _configProvider.GetDecimal("Filter2_MonthlyKDefaultMin", 0),
@@ -66,11 +63,11 @@ namespace MQReceiver.Filters
         }
 
         /// <summary>
-        /// 从配置文件读取过滤条件3：月K>季K or 周K 小于 月K
+        /// 从配置文件读取表格三条件：月K 小于 季K AND 周K上穿季K
         /// </summary>
-        public static KValueRelationCondition BuildKValueRelationCondition()
+        public static Table3Condition BuildTable3Condition()
         {
-            return new KValueRelationCondition
+            return new Table3Condition
             {
                 WeeklyKDefaultMin = _configProvider.GetDecimal("Filter3_WeeklyKDefaultMin", 0),
                 MonthlyKDefaultMin = _configProvider.GetDecimal("Filter3_MonthlyKDefaultMin", 0),
@@ -85,5 +82,69 @@ namespace MQReceiver.Filters
                 VolumeMin = _configProvider.GetNullableDecimal("Filter3_VolumeMin")
             };
         }
+
+        /// <summary>
+        /// 从配置文件读取表格四条件：月K 小于 季K AND 周K > 季K（不含上穿当天）
+        /// </summary>
+        public static Table4Condition BuildTable4Condition()
+        {
+            return new Table4Condition
+            {
+                WeeklyKDefaultMin = _configProvider.GetDecimal("Filter4_WeeklyKDefaultMin", 0),
+                MonthlyKDefaultMin = _configProvider.GetDecimal("Filter4_MonthlyKDefaultMin", 0),
+                QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter4_QuarterlyKDefaultMin", 0),
+                WeeklyKMin = _configProvider.GetNullableDecimal("Filter4_WeeklyKMin"),
+                WeeklyKMax = _configProvider.GetNullableDecimal("Filter4_WeeklyKMax"),
+                MonthlyKMin = _configProvider.GetNullableDecimal("Filter4_MonthlyKMin"),
+                MonthlyKMax = _configProvider.GetNullableDecimal("Filter4_MonthlyKMax"),
+                QuarterlyKMin = _configProvider.GetNullableDecimal("Filter4_QuarterlyKMin"),
+                QuarterlyKMax = _configProvider.GetNullableDecimal("Filter4_QuarterlyKMax"),
+                PriceMin = _configProvider.GetNullableDecimal("Filter4_PriceMin"),
+                VolumeMin = _configProvider.GetNullableDecimal("Filter4_VolumeMin")
+            };
+        }
+
+        /// <summary>
+        /// 从配置文件读取表格五条件：月K > 季K AND 周K 小于 月K
+        /// </summary>
+        public static Table5Condition BuildTable5Condition()
+        {
+            return new Table5Condition
+            {
+                WeeklyKDefaultMin = _configProvider.GetDecimal("Filter5_WeeklyKDefaultMin", 0),
+                MonthlyKDefaultMin = _configProvider.GetDecimal("Filter5_MonthlyKDefaultMin", 0),
+                QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter5_QuarterlyKDefaultMin", 0),
+                WeeklyKMin = _configProvider.GetNullableDecimal("Filter5_WeeklyKMin"),
+                WeeklyKMax = _configProvider.GetNullableDecimal("Filter5_WeeklyKMax"),
+                MonthlyKMin = _configProvider.GetNullableDecimal("Filter5_MonthlyKMin"),
+                MonthlyKMax = _configProvider.GetNullableDecimal("Filter5_MonthlyKMax"),
+                QuarterlyKMin = _configProvider.GetNullableDecimal("Filter5_QuarterlyKMin"),
+                QuarterlyKMax = _configProvider.GetNullableDecimal("Filter5_QuarterlyKMax"),
+                PriceMin = _configProvider.GetNullableDecimal("Filter5_PriceMin"),
+                VolumeMin = _configProvider.GetNullableDecimal("Filter5_VolumeMin")
+            };
+        }
+
+        /// <summary>
+        /// 从配置文件读取表格六条件：月K 小于 季K AND 周K 小于 季K
+        /// </summary>
+        public static Table6Condition BuildTable6Condition()
+        {
+            return new Table6Condition
+            {
+                WeeklyKDefaultMin = _configProvider.GetDecimal("Filter6_WeeklyKDefaultMin", 0),
+                MonthlyKDefaultMin = _configProvider.GetDecimal("Filter6_MonthlyKDefaultMin", 0),
+                QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter6_QuarterlyKDefaultMin", 0),
+                WeeklyKMin = _configProvider.GetNullableDecimal("Filter6_WeeklyKMin"),
+                WeeklyKMax = _configProvider.GetNullableDecimal("Filter6_WeeklyKMax"),
+                MonthlyKMin = _configProvider.GetNullableDecimal("Filter6_MonthlyKMin"),
+                MonthlyKMax = _configProvider.GetNullableDecimal("Filter6_MonthlyKMax"),
+                QuarterlyKMin = _configProvider.GetNullableDecimal("Filter6_QuarterlyKMin"),
+                QuarterlyKMax = _configProvider.GetNullableDecimal("Filter6_QuarterlyKMax"),
+                PriceMin = _configProvider.GetNullableDecimal("Filter6_PriceMin"),
+                VolumeMin = _configProvider.GetNullableDecimal("Filter6_VolumeMin")
+            };
+        }
+
     }
 }

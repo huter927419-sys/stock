@@ -17,11 +17,13 @@ namespace MQReceiver.Services
     {
         private readonly string connectionString;
         private readonly KDCalculator kdCalculator;
+        private readonly ExRightsAdjustmentCalculator exRightsCalculator;
 
         public ChartService()
         {
             connectionString = DatabaseConnectionHelper.BuildConnectionString();
             kdCalculator = new KDCalculator();
+            exRightsCalculator = new ExRightsAdjustmentCalculator();
         }
 
         /// <summary>
@@ -144,7 +146,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 加载日K线数据
+        /// 加载日K线数据（使用前复权价格）
         /// </summary>
         private List<Models.CandleDataPoint> LoadDailyKlineData(string stockCode, int days)
         {
@@ -175,14 +177,27 @@ namespace MQReceiver.Services
                         {
                             while (reader.Read())
                             {
+                                DateTime tradeDate = reader.GetDateTime(0);
+                                decimal openPrice = reader.GetDecimal(1);
+                                decimal highPrice = reader.GetDecimal(2);
+                                decimal lowPrice = reader.GetDecimal(3);
+                                decimal closePrice = reader.GetDecimal(4);
+                                decimal volume = reader.GetDecimal(5);
+
+                                // 计算前复权价格
+                                decimal adjOpen = exRightsCalculator.CalculateForwardAdjustedPrice(stockCode, tradeDate, openPrice);
+                                decimal adjHigh = exRightsCalculator.CalculateForwardAdjustedPrice(stockCode, tradeDate, highPrice);
+                                decimal adjLow = exRightsCalculator.CalculateForwardAdjustedPrice(stockCode, tradeDate, lowPrice);
+                                decimal adjClose = exRightsCalculator.CalculateForwardAdjustedPrice(stockCode, tradeDate, closePrice);
+
                                 result.Add(new Models.CandleDataPoint
                                 {
-                                    Date = reader.GetDateTime(0),
-                                    Open = (double)reader.GetDecimal(1),
-                                    High = (double)reader.GetDecimal(2),
-                                    Low = (double)reader.GetDecimal(3),
-                                    Close = (double)reader.GetDecimal(4),
-                                    Volume = (double)reader.GetDecimal(5)
+                                    Date = tradeDate,
+                                    Open = (double)adjOpen,
+                                    High = (double)adjHigh,
+                                    Low = (double)adjLow,
+                                    Close = (double)adjClose,
+                                    Volume = (double)volume
                                 });
                             }
                         }

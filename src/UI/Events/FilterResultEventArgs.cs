@@ -11,19 +11,34 @@ namespace MQReceiver.Events
     public class FilterResultEventArgs : EventArgs
     {
         /// <summary>
-        /// 条件1结果：周K、月K、季K 金叉过滤
+        /// 表格一结果：月K > 季K AND 周K上穿月K
         /// </summary>
-        public List<FilterResultWithHistory> Condition1Results { get; set; }
+        public List<FilterResultWithHistory> Table1Results { get; set; }
 
         /// <summary>
-        /// 条件2结果：周K>月K>季K（不含金叉）
+        /// 表格二结果：月K > 季K AND 周K > 月K（不含上穿当天）
         /// </summary>
-        public List<FilterResultWithHistory> Condition2Results { get; set; }
+        public List<FilterResultWithHistory> Table2Results { get; set; }
 
         /// <summary>
-        /// 条件3结果：月K>季K or 周K less than 月K
+        /// 表格三结果：月K less than 季K AND 周K上穿季K
         /// </summary>
-        public List<FilterResultWithHistory> Condition3Results { get; set; }
+        public List<FilterResultWithHistory> Table3Results { get; set; }
+
+        /// <summary>
+        /// 表格四结果：月K less than 季K AND 周K > 季K（不含上穿当天）
+        /// </summary>
+        public List<FilterResultWithHistory> Table4Results { get; set; }
+
+        /// <summary>
+        /// 表格五结果：月K > 季K AND 周K less than 月K
+        /// </summary>
+        public List<FilterResultWithHistory> Table5Results { get; set; }
+
+        /// <summary>
+        /// 表格六结果：月K less than 季K AND 周K less than 季K
+        /// </summary>
+        public List<FilterResultWithHistory> Table6Results { get; set; }
 
         /// <summary>
         /// 过滤执行时间
@@ -42,9 +57,12 @@ namespace MQReceiver.Events
 
         public FilterResultEventArgs()
         {
-            Condition1Results = new List<FilterResultWithHistory>();
-            Condition2Results = new List<FilterResultWithHistory>();
-            Condition3Results = new List<FilterResultWithHistory>();
+            Table1Results = new List<FilterResultWithHistory>();
+            Table2Results = new List<FilterResultWithHistory>();
+            Table3Results = new List<FilterResultWithHistory>();
+            Table4Results = new List<FilterResultWithHistory>();
+            Table5Results = new List<FilterResultWithHistory>();
+            Table6Results = new List<FilterResultWithHistory>();
             FilterTime = DateTime.Now;
         }
     }

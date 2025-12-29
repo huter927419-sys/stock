@@ -236,6 +236,23 @@ namespace MQReceiver.Views
             }
         }
 
+        private async void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            // 当WPF窗口大小改变时，通知WebView2内的图表重新调整大小
+            if (_isWebViewInitialized && webView?.CoreWebView2 != null)
+            {
+                try
+                {
+                    // 触发JavaScript的resize事件处理
+                    await webView.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
+                }
+                catch (Exception)
+                {
+                    // 忽略执行脚本时的异常（窗口正在关闭等情况）
+                }
+            }
+        }
+
         private string GetEmbeddedHtml()
         {
             // 内嵌的HTML作为后备方案

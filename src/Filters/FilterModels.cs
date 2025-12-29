@@ -27,32 +27,49 @@ namespace MQReceiver.Filters
     }
 
     /// <summary>
-    /// 过滤条件1的配置：金叉过滤
+    /// 表格一条件：月K > 季K AND 周K上穿月K（周K金叉月K）
     /// </summary>
-    public class GoldenCrossCondition : FilterConditionBase
-    {
-        // 周KD金叉条件（K > D）
-        public bool RequireWeeklyGoldenCross { get; set; } = true;
-
-        // 月KD金叉条件（K > D）
-        public bool RequireMonthlyGoldenCross { get; set; } = true;
-
-        // 季KD金叉条件（K > D）
-        public bool RequireQuarterlyGoldenCross { get; set; } = true;
-    }
-
-    /// <summary>
-    /// 过滤条件2的配置：周K>月K>季K
-    /// </summary>
-    public class KValueOrderCondition : FilterConditionBase
+    public class Table1Condition : FilterConditionBase
     {
         // 无额外属性，使用基类的通用属性
     }
 
     /// <summary>
-    /// 过滤条件3的配置：月K>季K or 周K 小于 月K
+    /// 表格二条件：月K > 季K AND 周K > 月K（不含上穿当天）
     /// </summary>
-    public class KValueRelationCondition : FilterConditionBase
+    public class Table2Condition : FilterConditionBase
+    {
+        // 无额外属性，使用基类的通用属性
+    }
+
+    /// <summary>
+    /// 表格三条件：月K < 季K AND 周K上穿季K（周K金叉季K）
+    /// </summary>
+    public class Table3Condition : FilterConditionBase
+    {
+        // 无额外属性，使用基类的通用属性
+    }
+
+    /// <summary>
+    /// 表格四条件：月K < 季K AND 周K > 季K（不含上穿当天）
+    /// </summary>
+    public class Table4Condition : FilterConditionBase
+    {
+        // 无额外属性，使用基类的通用属性
+    }
+
+    /// <summary>
+    /// 表格五条件：月K > 季K AND 周K < 月K
+    /// </summary>
+    public class Table5Condition : FilterConditionBase
+    {
+        // 无额外属性，使用基类的通用属性
+    }
+
+    /// <summary>
+    /// 表格六条件：月K < 季K AND 周K < 季K
+    /// </summary>
+    public class Table6Condition : FilterConditionBase
     {
         // 无额外属性，使用基类的通用属性
     }

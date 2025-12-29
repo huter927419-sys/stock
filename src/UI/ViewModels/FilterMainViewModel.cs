@@ -13,41 +13,66 @@ namespace MQReceiver.ViewModels
     /// </summary>
     public class FilterMainViewModel : INotifyPropertyChanged
     {
-        private ObservableCollection<StockResultItem> _condition1Results;
-        private ObservableCollection<StockResultItem> _condition2Results;
-        private ObservableCollection<StockResultItem> _condition3Results;
+        private ObservableCollection<StockResultItem> _table1Results;
+        private ObservableCollection<StockResultItem> _table2Results;
+        private ObservableCollection<StockResultItem> _table3Results;
+        private ObservableCollection<StockResultItem> _table4Results;
+        private ObservableCollection<StockResultItem> _table5Results;
+        private ObservableCollection<StockResultItem> _table6Results;
         private DateTime _lastUpdateTime;
         private static readonly Configuration.IConfigurationProvider _configProvider = Configuration.AppConfigProvider.Instance;
 
-        // 条件1的默认最小值 (金叉条件，建议较低阈值)
-        private decimal _condition1WeeklyKDefaultMin = 30;
-        private decimal _condition1MonthlyKDefaultMin = 25;
-        private decimal _condition1QuarterlyKDefaultMin = 20;
-        private bool _condition1WeeklyKSelected = true;
-        private bool _condition1MonthlyKSelected = false;
-        private bool _condition1QuarterlyKSelected = false;
+        // 表格1-6的默认最小值
+        private decimal _table1WeeklyKDefaultMin = 0;
+        private decimal _table1MonthlyKDefaultMin = 0;
+        private decimal _table1QuarterlyKDefaultMin = 0;
+        private bool _table1WeeklyKSelected = true;
+        private bool _table1MonthlyKSelected = false;
+        private bool _table1QuarterlyKSelected = false;
 
-        // 条件2的默认最小值 (周K>月K>季K，趋势向上)
-        private decimal _condition2WeeklyKDefaultMin = 35;
-        private decimal _condition2MonthlyKDefaultMin = 30;
-        private decimal _condition2QuarterlyKDefaultMin = 25;
-        private bool _condition2WeeklyKSelected = true;
-        private bool _condition2MonthlyKSelected = false;
-        private bool _condition2QuarterlyKSelected = false;
+        private decimal _table2WeeklyKDefaultMin = 0;
+        private decimal _table2MonthlyKDefaultMin = 0;
+        private decimal _table2QuarterlyKDefaultMin = 0;
+        private bool _table2WeeklyKSelected = true;
+        private bool _table2MonthlyKSelected = false;
+        private bool _table2QuarterlyKSelected = false;
 
-        // 条件3的默认最小值 (月K>季K或周K<月K)
-        private decimal _condition3WeeklyKDefaultMin = 30;
-        private decimal _condition3MonthlyKDefaultMin = 25;
-        private decimal _condition3QuarterlyKDefaultMin = 20;
-        private bool _condition3WeeklyKSelected = true;
-        private bool _condition3MonthlyKSelected = false;
-        private bool _condition3QuarterlyKSelected = false;
+        private decimal _table3WeeklyKDefaultMin = 0;
+        private decimal _table3MonthlyKDefaultMin = 0;
+        private decimal _table3QuarterlyKDefaultMin = 0;
+        private bool _table3WeeklyKSelected = true;
+        private bool _table3MonthlyKSelected = false;
+        private bool _table3QuarterlyKSelected = false;
+
+        private decimal _table4WeeklyKDefaultMin = 0;
+        private decimal _table4MonthlyKDefaultMin = 0;
+        private decimal _table4QuarterlyKDefaultMin = 0;
+        private bool _table4WeeklyKSelected = true;
+        private bool _table4MonthlyKSelected = false;
+        private bool _table4QuarterlyKSelected = false;
+
+        private decimal _table5WeeklyKDefaultMin = 0;
+        private decimal _table5MonthlyKDefaultMin = 0;
+        private decimal _table5QuarterlyKDefaultMin = 0;
+        private bool _table5WeeklyKSelected = true;
+        private bool _table5MonthlyKSelected = false;
+        private bool _table5QuarterlyKSelected = false;
+
+        private decimal _table6WeeklyKDefaultMin = 0;
+        private decimal _table6MonthlyKDefaultMin = 0;
+        private decimal _table6QuarterlyKDefaultMin = 0;
+        private bool _table6WeeklyKSelected = true;
+        private bool _table6MonthlyKSelected = false;
+        private bool _table6QuarterlyKSelected = false;
 
         public FilterMainViewModel()
         {
-            _condition1Results = new ObservableCollection<StockResultItem>();
-            _condition2Results = new ObservableCollection<StockResultItem>();
-            _condition3Results = new ObservableCollection<StockResultItem>();
+            _table1Results = new ObservableCollection<StockResultItem>();
+            _table2Results = new ObservableCollection<StockResultItem>();
+            _table3Results = new ObservableCollection<StockResultItem>();
+            _table4Results = new ObservableCollection<StockResultItem>();
+            _table5Results = new ObservableCollection<StockResultItem>();
+            _table6Results = new ObservableCollection<StockResultItem>();
             _lastUpdateTime = DateTime.Now;
 
             // 从配置文件加载默认值
@@ -61,20 +86,35 @@ namespace MQReceiver.ViewModels
         {
             try
             {
-                // 条件1 (金叉条件，建议较低阈值：周K>=30, 月K>=25, 季K>=20)
-                _condition1WeeklyKDefaultMin = _configProvider.GetDecimal("Filter1_WeeklyKDefaultMin", 30);
-                _condition1MonthlyKDefaultMin = _configProvider.GetDecimal("Filter1_MonthlyKDefaultMin", 25);
-                _condition1QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter1_QuarterlyKDefaultMin", 20);
+                // 表格1
+                _table1WeeklyKDefaultMin = _configProvider.GetDecimal("Filter1_WeeklyKDefaultMin", 0);
+                _table1MonthlyKDefaultMin = _configProvider.GetDecimal("Filter1_MonthlyKDefaultMin", 0);
+                _table1QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter1_QuarterlyKDefaultMin", 0);
 
-                // 条件2 (周K>月K>季K，趋势向上：周K>=35, 月K>=30, 季K>=25)
-                _condition2WeeklyKDefaultMin = _configProvider.GetDecimal("Filter2_WeeklyKDefaultMin", 35);
-                _condition2MonthlyKDefaultMin = _configProvider.GetDecimal("Filter2_MonthlyKDefaultMin", 30);
-                _condition2QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter2_QuarterlyKDefaultMin", 25);
+                // 表格2
+                _table2WeeklyKDefaultMin = _configProvider.GetDecimal("Filter2_WeeklyKDefaultMin", 0);
+                _table2MonthlyKDefaultMin = _configProvider.GetDecimal("Filter2_MonthlyKDefaultMin", 0);
+                _table2QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter2_QuarterlyKDefaultMin", 0);
 
-                // 条件3 (月K>季K或周K<月K：周K>=30, 月K>=25, 季K>=20)
-                _condition3WeeklyKDefaultMin = _configProvider.GetDecimal("Filter3_WeeklyKDefaultMin", 30);
-                _condition3MonthlyKDefaultMin = _configProvider.GetDecimal("Filter3_MonthlyKDefaultMin", 25);
-                _condition3QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter3_QuarterlyKDefaultMin", 20);
+                // 表格3
+                _table3WeeklyKDefaultMin = _configProvider.GetDecimal("Filter3_WeeklyKDefaultMin", 0);
+                _table3MonthlyKDefaultMin = _configProvider.GetDecimal("Filter3_MonthlyKDefaultMin", 0);
+                _table3QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter3_QuarterlyKDefaultMin", 0);
+
+                // 表格4
+                _table4WeeklyKDefaultMin = _configProvider.GetDecimal("Filter4_WeeklyKDefaultMin", 0);
+                _table4MonthlyKDefaultMin = _configProvider.GetDecimal("Filter4_MonthlyKDefaultMin", 0);
+                _table4QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter4_QuarterlyKDefaultMin", 0);
+
+                // 表格5
+                _table5WeeklyKDefaultMin = _configProvider.GetDecimal("Filter5_WeeklyKDefaultMin", 0);
+                _table5MonthlyKDefaultMin = _configProvider.GetDecimal("Filter5_MonthlyKDefaultMin", 0);
+                _table5QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter5_QuarterlyKDefaultMin", 0);
+
+                // 表格6
+                _table6WeeklyKDefaultMin = _configProvider.GetDecimal("Filter6_WeeklyKDefaultMin", 0);
+                _table6MonthlyKDefaultMin = _configProvider.GetDecimal("Filter6_MonthlyKDefaultMin", 0);
+                _table6QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter6_QuarterlyKDefaultMin", 0);
             }
             catch
             {
@@ -82,42 +122,79 @@ namespace MQReceiver.ViewModels
             }
         }
 
-        public ObservableCollection<StockResultItem> Condition1Results
+        // 表格1-6结果属性
+        public ObservableCollection<StockResultItem> Table1Results
         {
-            get { return _condition1Results; }
+            get { return _table1Results; }
             set
             {
-                _condition1Results = value;
-                OnPropertyChanged(nameof(Condition1Results));
-                OnPropertyChanged(nameof(Condition1Count));
+                _table1Results = value;
+                OnPropertyChanged(nameof(Table1Results));
+                OnPropertyChanged(nameof(Table1Count));
             }
         }
 
-        public ObservableCollection<StockResultItem> Condition2Results
+        public ObservableCollection<StockResultItem> Table2Results
         {
-            get { return _condition2Results; }
+            get { return _table2Results; }
             set
             {
-                _condition2Results = value;
-                OnPropertyChanged(nameof(Condition2Results));
-                OnPropertyChanged(nameof(Condition2Count));
+                _table2Results = value;
+                OnPropertyChanged(nameof(Table2Results));
+                OnPropertyChanged(nameof(Table2Count));
             }
         }
 
-        public ObservableCollection<StockResultItem> Condition3Results
+        public ObservableCollection<StockResultItem> Table3Results
         {
-            get { return _condition3Results; }
+            get { return _table3Results; }
             set
             {
-                _condition3Results = value;
-                OnPropertyChanged(nameof(Condition3Results));
-                OnPropertyChanged(nameof(Condition3Count));
+                _table3Results = value;
+                OnPropertyChanged(nameof(Table3Results));
+                OnPropertyChanged(nameof(Table3Count));
             }
         }
 
-        public int Condition1Count => _condition1Results?.Count ?? 0;
-        public int Condition2Count => _condition2Results?.Count ?? 0;
-        public int Condition3Count => _condition3Results?.Count ?? 0;
+        public ObservableCollection<StockResultItem> Table4Results
+        {
+            get { return _table4Results; }
+            set
+            {
+                _table4Results = value;
+                OnPropertyChanged(nameof(Table4Results));
+                OnPropertyChanged(nameof(Table4Count));
+            }
+        }
+
+        public ObservableCollection<StockResultItem> Table5Results
+        {
+            get { return _table5Results; }
+            set
+            {
+                _table5Results = value;
+                OnPropertyChanged(nameof(Table5Results));
+                OnPropertyChanged(nameof(Table5Count));
+            }
+        }
+
+        public ObservableCollection<StockResultItem> Table6Results
+        {
+            get { return _table6Results; }
+            set
+            {
+                _table6Results = value;
+                OnPropertyChanged(nameof(Table6Results));
+                OnPropertyChanged(nameof(Table6Count));
+            }
+        }
+
+        public int Table1Count => _table1Results?.Count ?? 0;
+        public int Table2Count => _table2Results?.Count ?? 0;
+        public int Table3Count => _table3Results?.Count ?? 0;
+        public int Table4Count => _table4Results?.Count ?? 0;
+        public int Table5Count => _table5Results?.Count ?? 0;
+        public int Table6Count => _table6Results?.Count ?? 0;
 
         public DateTime LastUpdateTime
         {
@@ -130,335 +207,502 @@ namespace MQReceiver.ViewModels
         }
 
         // 存储原始结果（用于过滤）
-        private List<FilterResultWithHistory> _originalCondition1Results;
-        private List<FilterResultWithHistory> _originalCondition2Results;
-        private List<FilterResultWithHistory> _originalCondition3Results;
+        private List<FilterResultWithHistory> _originalTable1Results;
+        private List<FilterResultWithHistory> _originalTable2Results;
+        private List<FilterResultWithHistory> _originalTable3Results;
+        private List<FilterResultWithHistory> _originalTable4Results;
+        private List<FilterResultWithHistory> _originalTable5Results;
+        private List<FilterResultWithHistory> _originalTable6Results;
 
-        // 条件1的默认最小值属性
-        public decimal Condition1WeeklyKDefaultMin
+        // 表格1的默认最小值属性
+        public decimal Table1WeeklyKDefaultMin
         {
-            get { return _condition1WeeklyKDefaultMin; }
+            get { return _table1WeeklyKDefaultMin; }
             set
             {
-                if (_condition1WeeklyKDefaultMin != value)
+                if (_table1WeeklyKDefaultMin != value)
                 {
-                    _condition1WeeklyKDefaultMin = value;
+                    _table1WeeklyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter1_WeeklyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition1WeeklyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition1SettingsDisplay));
+                    OnPropertyChanged(nameof(Table1WeeklyKDefaultMin));
+                    OnPropertyChanged(nameof(Table1SettingsDisplay));
                     FilterResultsByDefaultMin(1);
                 }
             }
         }
 
-        public decimal Condition1MonthlyKDefaultMin
+        public decimal Table1MonthlyKDefaultMin
         {
-            get { return _condition1MonthlyKDefaultMin; }
+            get { return _table1MonthlyKDefaultMin; }
             set
             {
-                if (_condition1MonthlyKDefaultMin != value)
+                if (_table1MonthlyKDefaultMin != value)
                 {
-                    _condition1MonthlyKDefaultMin = value;
+                    _table1MonthlyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter1_MonthlyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition1MonthlyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition1SettingsDisplay));
+                    OnPropertyChanged(nameof(Table1MonthlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table1SettingsDisplay));
                     FilterResultsByDefaultMin(1);
                 }
             }
         }
 
-        public decimal Condition1QuarterlyKDefaultMin
+        public decimal Table1QuarterlyKDefaultMin
         {
-            get { return _condition1QuarterlyKDefaultMin; }
+            get { return _table1QuarterlyKDefaultMin; }
             set
             {
-                if (_condition1QuarterlyKDefaultMin != value)
+                if (_table1QuarterlyKDefaultMin != value)
                 {
-                    _condition1QuarterlyKDefaultMin = value;
+                    _table1QuarterlyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter1_QuarterlyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition1QuarterlyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition1SettingsDisplay));
+                    OnPropertyChanged(nameof(Table1QuarterlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table1SettingsDisplay));
                     FilterResultsByDefaultMin(1);
                 }
             }
         }
 
-        public bool Condition1WeeklyKSelected
+        public bool Table1WeeklyKSelected
         {
-            get { return _condition1WeeklyKSelected; }
-            set
-            {
-                if (_condition1WeeklyKSelected != value)
-                {
-                    _condition1WeeklyKSelected = value;
-                    OnPropertyChanged(nameof(Condition1WeeklyKSelected));
-                }
-            }
+            get { return _table1WeeklyKSelected; }
+            set { if (_table1WeeklyKSelected != value) { _table1WeeklyKSelected = value; OnPropertyChanged(nameof(Table1WeeklyKSelected)); } }
         }
 
-        public bool Condition1MonthlyKSelected
+        public bool Table1MonthlyKSelected
         {
-            get { return _condition1MonthlyKSelected; }
-            set
-            {
-                if (_condition1MonthlyKSelected != value)
-                {
-                    _condition1MonthlyKSelected = value;
-                    OnPropertyChanged(nameof(Condition1MonthlyKSelected));
-                }
-            }
+            get { return _table1MonthlyKSelected; }
+            set { if (_table1MonthlyKSelected != value) { _table1MonthlyKSelected = value; OnPropertyChanged(nameof(Table1MonthlyKSelected)); } }
         }
 
-        public bool Condition1QuarterlyKSelected
+        public bool Table1QuarterlyKSelected
         {
-            get { return _condition1QuarterlyKSelected; }
-            set
-            {
-                if (_condition1QuarterlyKSelected != value)
-                {
-                    _condition1QuarterlyKSelected = value;
-                    OnPropertyChanged(nameof(Condition1QuarterlyKSelected));
-                }
-            }
+            get { return _table1QuarterlyKSelected; }
+            set { if (_table1QuarterlyKSelected != value) { _table1QuarterlyKSelected = value; OnPropertyChanged(nameof(Table1QuarterlyKSelected)); } }
         }
 
-        // 条件2的默认最小值属性
-        public decimal Condition2WeeklyKDefaultMin
+        // 表格2的默认最小值属性
+        public decimal Table2WeeklyKDefaultMin
         {
-            get { return _condition2WeeklyKDefaultMin; }
+            get { return _table2WeeklyKDefaultMin; }
             set
             {
-                if (_condition2WeeklyKDefaultMin != value)
+                if (_table2WeeklyKDefaultMin != value)
                 {
-                    _condition2WeeklyKDefaultMin = value;
+                    _table2WeeklyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter2_WeeklyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition2WeeklyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition2SettingsDisplay));
+                    OnPropertyChanged(nameof(Table2WeeklyKDefaultMin));
+                    OnPropertyChanged(nameof(Table2SettingsDisplay));
                     FilterResultsByDefaultMin(2);
                 }
             }
         }
 
-        public decimal Condition2MonthlyKDefaultMin
+        public decimal Table2MonthlyKDefaultMin
         {
-            get { return _condition2MonthlyKDefaultMin; }
+            get { return _table2MonthlyKDefaultMin; }
             set
             {
-                if (_condition2MonthlyKDefaultMin != value)
+                if (_table2MonthlyKDefaultMin != value)
                 {
-                    _condition2MonthlyKDefaultMin = value;
+                    _table2MonthlyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter2_MonthlyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition2MonthlyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition2SettingsDisplay));
+                    OnPropertyChanged(nameof(Table2MonthlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table2SettingsDisplay));
                     FilterResultsByDefaultMin(2);
                 }
             }
         }
 
-        public decimal Condition2QuarterlyKDefaultMin
+        public decimal Table2QuarterlyKDefaultMin
         {
-            get { return _condition2QuarterlyKDefaultMin; }
+            get { return _table2QuarterlyKDefaultMin; }
             set
             {
-                if (_condition2QuarterlyKDefaultMin != value)
+                if (_table2QuarterlyKDefaultMin != value)
                 {
-                    _condition2QuarterlyKDefaultMin = value;
+                    _table2QuarterlyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter2_QuarterlyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition2QuarterlyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition2SettingsDisplay));
+                    OnPropertyChanged(nameof(Table2QuarterlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table2SettingsDisplay));
                     FilterResultsByDefaultMin(2);
                 }
             }
         }
 
-        public bool Condition2WeeklyKSelected
+        public bool Table2WeeklyKSelected
         {
-            get { return _condition2WeeklyKSelected; }
-            set
-            {
-                if (_condition2WeeklyKSelected != value)
-                {
-                    _condition2WeeklyKSelected = value;
-                    OnPropertyChanged(nameof(Condition2WeeklyKSelected));
-                }
-            }
+            get { return _table2WeeklyKSelected; }
+            set { if (_table2WeeklyKSelected != value) { _table2WeeklyKSelected = value; OnPropertyChanged(nameof(Table2WeeklyKSelected)); } }
         }
 
-        public bool Condition2MonthlyKSelected
+        public bool Table2MonthlyKSelected
         {
-            get { return _condition2MonthlyKSelected; }
-            set
-            {
-                if (_condition2MonthlyKSelected != value)
-                {
-                    _condition2MonthlyKSelected = value;
-                    OnPropertyChanged(nameof(Condition2MonthlyKSelected));
-                }
-            }
+            get { return _table2MonthlyKSelected; }
+            set { if (_table2MonthlyKSelected != value) { _table2MonthlyKSelected = value; OnPropertyChanged(nameof(Table2MonthlyKSelected)); } }
         }
 
-        public bool Condition2QuarterlyKSelected
+        public bool Table2QuarterlyKSelected
         {
-            get { return _condition2QuarterlyKSelected; }
-            set
-            {
-                if (_condition2QuarterlyKSelected != value)
-                {
-                    _condition2QuarterlyKSelected = value;
-                    OnPropertyChanged(nameof(Condition2QuarterlyKSelected));
-                }
-            }
+            get { return _table2QuarterlyKSelected; }
+            set { if (_table2QuarterlyKSelected != value) { _table2QuarterlyKSelected = value; OnPropertyChanged(nameof(Table2QuarterlyKSelected)); } }
         }
 
-        // 条件3的默认最小值属性
-        public decimal Condition3WeeklyKDefaultMin
+        // 表格3的默认最小值属性
+        public decimal Table3WeeklyKDefaultMin
         {
-            get { return _condition3WeeklyKDefaultMin; }
+            get { return _table3WeeklyKDefaultMin; }
             set
             {
-                if (_condition3WeeklyKDefaultMin != value)
+                if (_table3WeeklyKDefaultMin != value)
                 {
-                    _condition3WeeklyKDefaultMin = value;
+                    _table3WeeklyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter3_WeeklyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition3WeeklyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition3SettingsDisplay));
+                    OnPropertyChanged(nameof(Table3WeeklyKDefaultMin));
+                    OnPropertyChanged(nameof(Table3SettingsDisplay));
                     FilterResultsByDefaultMin(3);
                 }
             }
         }
 
-        public decimal Condition3MonthlyKDefaultMin
+        public decimal Table3MonthlyKDefaultMin
         {
-            get { return _condition3MonthlyKDefaultMin; }
+            get { return _table3MonthlyKDefaultMin; }
             set
             {
-                if (_condition3MonthlyKDefaultMin != value)
+                if (_table3MonthlyKDefaultMin != value)
                 {
-                    _condition3MonthlyKDefaultMin = value;
+                    _table3MonthlyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter3_MonthlyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition3MonthlyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition3SettingsDisplay));
+                    OnPropertyChanged(nameof(Table3MonthlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table3SettingsDisplay));
                     FilterResultsByDefaultMin(3);
                 }
             }
         }
 
-        public decimal Condition3QuarterlyKDefaultMin
+        public decimal Table3QuarterlyKDefaultMin
         {
-            get { return _condition3QuarterlyKDefaultMin; }
+            get { return _table3QuarterlyKDefaultMin; }
             set
             {
-                if (_condition3QuarterlyKDefaultMin != value)
+                if (_table3QuarterlyKDefaultMin != value)
                 {
-                    _condition3QuarterlyKDefaultMin = value;
+                    _table3QuarterlyKDefaultMin = value;
                     _configProvider.SetDecimal("Filter3_QuarterlyKDefaultMin", value);
-                    OnPropertyChanged(nameof(Condition3QuarterlyKDefaultMin));
-                    OnPropertyChanged(nameof(Condition3SettingsDisplay));
+                    OnPropertyChanged(nameof(Table3QuarterlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table3SettingsDisplay));
                     FilterResultsByDefaultMin(3);
                 }
             }
         }
 
-        public bool Condition3WeeklyKSelected
+        public bool Table3WeeklyKSelected
         {
-            get { return _condition3WeeklyKSelected; }
+            get { return _table3WeeklyKSelected; }
+            set { if (_table3WeeklyKSelected != value) { _table3WeeklyKSelected = value; OnPropertyChanged(nameof(Table3WeeklyKSelected)); } }
+        }
+
+        public bool Table3MonthlyKSelected
+        {
+            get { return _table3MonthlyKSelected; }
+            set { if (_table3MonthlyKSelected != value) { _table3MonthlyKSelected = value; OnPropertyChanged(nameof(Table3MonthlyKSelected)); } }
+        }
+
+        public bool Table3QuarterlyKSelected
+        {
+            get { return _table3QuarterlyKSelected; }
+            set { if (_table3QuarterlyKSelected != value) { _table3QuarterlyKSelected = value; OnPropertyChanged(nameof(Table3QuarterlyKSelected)); } }
+        }
+
+        // 表格4的默认最小值属性
+        public decimal Table4WeeklyKDefaultMin
+        {
+            get { return _table4WeeklyKDefaultMin; }
             set
             {
-                if (_condition3WeeklyKSelected != value)
+                if (_table4WeeklyKDefaultMin != value)
                 {
-                    _condition3WeeklyKSelected = value;
-                    OnPropertyChanged(nameof(Condition3WeeklyKSelected));
+                    _table4WeeklyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter4_WeeklyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table4WeeklyKDefaultMin));
+                    OnPropertyChanged(nameof(Table4SettingsDisplay));
+                    FilterResultsByDefaultMin(4);
                 }
             }
         }
 
-        public bool Condition3MonthlyKSelected
+        public decimal Table4MonthlyKDefaultMin
         {
-            get { return _condition3MonthlyKSelected; }
+            get { return _table4MonthlyKDefaultMin; }
             set
             {
-                if (_condition3MonthlyKSelected != value)
+                if (_table4MonthlyKDefaultMin != value)
                 {
-                    _condition3MonthlyKSelected = value;
-                    OnPropertyChanged(nameof(Condition3MonthlyKSelected));
+                    _table4MonthlyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter4_MonthlyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table4MonthlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table4SettingsDisplay));
+                    FilterResultsByDefaultMin(4);
                 }
             }
         }
 
-        public bool Condition3QuarterlyKSelected
+        public decimal Table4QuarterlyKDefaultMin
         {
-            get { return _condition3QuarterlyKSelected; }
+            get { return _table4QuarterlyKDefaultMin; }
             set
             {
-                if (_condition3QuarterlyKSelected != value)
+                if (_table4QuarterlyKDefaultMin != value)
                 {
-                    _condition3QuarterlyKSelected = value;
-                    OnPropertyChanged(nameof(Condition3QuarterlyKSelected));
+                    _table4QuarterlyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter4_QuarterlyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table4QuarterlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table4SettingsDisplay));
+                    FilterResultsByDefaultMin(4);
                 }
             }
+        }
+
+        public bool Table4WeeklyKSelected
+        {
+            get { return _table4WeeklyKSelected; }
+            set { if (_table4WeeklyKSelected != value) { _table4WeeklyKSelected = value; OnPropertyChanged(nameof(Table4WeeklyKSelected)); } }
+        }
+
+        public bool Table4MonthlyKSelected
+        {
+            get { return _table4MonthlyKSelected; }
+            set { if (_table4MonthlyKSelected != value) { _table4MonthlyKSelected = value; OnPropertyChanged(nameof(Table4MonthlyKSelected)); } }
+        }
+
+        public bool Table4QuarterlyKSelected
+        {
+            get { return _table4QuarterlyKSelected; }
+            set { if (_table4QuarterlyKSelected != value) { _table4QuarterlyKSelected = value; OnPropertyChanged(nameof(Table4QuarterlyKSelected)); } }
+        }
+
+        // 表格5的默认最小值属性
+        public decimal Table5WeeklyKDefaultMin
+        {
+            get { return _table5WeeklyKDefaultMin; }
+            set
+            {
+                if (_table5WeeklyKDefaultMin != value)
+                {
+                    _table5WeeklyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter5_WeeklyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table5WeeklyKDefaultMin));
+                    OnPropertyChanged(nameof(Table5SettingsDisplay));
+                    FilterResultsByDefaultMin(5);
+                }
+            }
+        }
+
+        public decimal Table5MonthlyKDefaultMin
+        {
+            get { return _table5MonthlyKDefaultMin; }
+            set
+            {
+                if (_table5MonthlyKDefaultMin != value)
+                {
+                    _table5MonthlyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter5_MonthlyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table5MonthlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table5SettingsDisplay));
+                    FilterResultsByDefaultMin(5);
+                }
+            }
+        }
+
+        public decimal Table5QuarterlyKDefaultMin
+        {
+            get { return _table5QuarterlyKDefaultMin; }
+            set
+            {
+                if (_table5QuarterlyKDefaultMin != value)
+                {
+                    _table5QuarterlyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter5_QuarterlyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table5QuarterlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table5SettingsDisplay));
+                    FilterResultsByDefaultMin(5);
+                }
+            }
+        }
+
+        public bool Table5WeeklyKSelected
+        {
+            get { return _table5WeeklyKSelected; }
+            set { if (_table5WeeklyKSelected != value) { _table5WeeklyKSelected = value; OnPropertyChanged(nameof(Table5WeeklyKSelected)); } }
+        }
+
+        public bool Table5MonthlyKSelected
+        {
+            get { return _table5MonthlyKSelected; }
+            set { if (_table5MonthlyKSelected != value) { _table5MonthlyKSelected = value; OnPropertyChanged(nameof(Table5MonthlyKSelected)); } }
+        }
+
+        public bool Table5QuarterlyKSelected
+        {
+            get { return _table5QuarterlyKSelected; }
+            set { if (_table5QuarterlyKSelected != value) { _table5QuarterlyKSelected = value; OnPropertyChanged(nameof(Table5QuarterlyKSelected)); } }
+        }
+
+        // 表格6的默认最小值属性
+        public decimal Table6WeeklyKDefaultMin
+        {
+            get { return _table6WeeklyKDefaultMin; }
+            set
+            {
+                if (_table6WeeklyKDefaultMin != value)
+                {
+                    _table6WeeklyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter6_WeeklyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table6WeeklyKDefaultMin));
+                    OnPropertyChanged(nameof(Table6SettingsDisplay));
+                    FilterResultsByDefaultMin(6);
+                }
+            }
+        }
+
+        public decimal Table6MonthlyKDefaultMin
+        {
+            get { return _table6MonthlyKDefaultMin; }
+            set
+            {
+                if (_table6MonthlyKDefaultMin != value)
+                {
+                    _table6MonthlyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter6_MonthlyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table6MonthlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table6SettingsDisplay));
+                    FilterResultsByDefaultMin(6);
+                }
+            }
+        }
+
+        public decimal Table6QuarterlyKDefaultMin
+        {
+            get { return _table6QuarterlyKDefaultMin; }
+            set
+            {
+                if (_table6QuarterlyKDefaultMin != value)
+                {
+                    _table6QuarterlyKDefaultMin = value;
+                    _configProvider.SetDecimal("Filter6_QuarterlyKDefaultMin", value);
+                    OnPropertyChanged(nameof(Table6QuarterlyKDefaultMin));
+                    OnPropertyChanged(nameof(Table6SettingsDisplay));
+                    FilterResultsByDefaultMin(6);
+                }
+            }
+        }
+
+        public bool Table6WeeklyKSelected
+        {
+            get { return _table6WeeklyKSelected; }
+            set { if (_table6WeeklyKSelected != value) { _table6WeeklyKSelected = value; OnPropertyChanged(nameof(Table6WeeklyKSelected)); } }
+        }
+
+        public bool Table6MonthlyKSelected
+        {
+            get { return _table6MonthlyKSelected; }
+            set { if (_table6MonthlyKSelected != value) { _table6MonthlyKSelected = value; OnPropertyChanged(nameof(Table6MonthlyKSelected)); } }
+        }
+
+        public bool Table6QuarterlyKSelected
+        {
+            get { return _table6QuarterlyKSelected; }
+            set { if (_table6QuarterlyKSelected != value) { _table6QuarterlyKSelected = value; OnPropertyChanged(nameof(Table6QuarterlyKSelected)); } }
         }
 
         // 设置显示文本属性
-        public string Condition1SettingsDisplay => $"周K({_condition1WeeklyKDefaultMin}), 月K({_condition1MonthlyKDefaultMin}), 季K({_condition1QuarterlyKDefaultMin})";
-        public string Condition2SettingsDisplay => $"周K({_condition2WeeklyKDefaultMin}), 月K({_condition2MonthlyKDefaultMin}), 季K({_condition2QuarterlyKDefaultMin})";
-        public string Condition3SettingsDisplay => $"周K({_condition3WeeklyKDefaultMin}), 月K({_condition3MonthlyKDefaultMin}), 季K({_condition3QuarterlyKDefaultMin})";
+        public string Table1SettingsDisplay => $"周K({_table1WeeklyKDefaultMin}), 月K({_table1MonthlyKDefaultMin}), 季K({_table1QuarterlyKDefaultMin})";
+        public string Table2SettingsDisplay => $"周K({_table2WeeklyKDefaultMin}), 月K({_table2MonthlyKDefaultMin}), 季K({_table2QuarterlyKDefaultMin})";
+        public string Table3SettingsDisplay => $"周K({_table3WeeklyKDefaultMin}), 月K({_table3MonthlyKDefaultMin}), 季K({_table3QuarterlyKDefaultMin})";
+        public string Table4SettingsDisplay => $"周K({_table4WeeklyKDefaultMin}), 月K({_table4MonthlyKDefaultMin}), 季K({_table4QuarterlyKDefaultMin})";
+        public string Table5SettingsDisplay => $"周K({_table5WeeklyKDefaultMin}), 月K({_table5MonthlyKDefaultMin}), 季K({_table5QuarterlyKDefaultMin})";
+        public string Table6SettingsDisplay => $"周K({_table6WeeklyKDefaultMin}), 月K({_table6MonthlyKDefaultMin}), 季K({_table6QuarterlyKDefaultMin})";
 
         /// <summary>
         /// 刷新过滤结果（当默认最小值改变时调用）
         /// </summary>
         public void RefreshFilteredResults()
         {
-            FilterResultsByDefaultMin(1);
-            FilterResultsByDefaultMin(2);
-            FilterResultsByDefaultMin(3);
+            for (int i = 1; i <= 6; i++)
+            {
+                FilterResultsByDefaultMin(i);
+            }
         }
 
         /// <summary>
         /// 根据默认最小值过滤结果
         /// </summary>
-        private void FilterResultsByDefaultMin(int conditionNumber)
+        private void FilterResultsByDefaultMin(int tableNumber)
         {
-            if (conditionNumber == 1 && _originalCondition1Results != null)
-            {
-                var filtered = _originalCondition1Results.Where(r =>
-                    r.WeeklyK >= _condition1WeeklyKDefaultMin &&
-                    r.MonthlyK >= _condition1MonthlyKDefaultMin &&
-                    r.QuarterlyK >= _condition1QuarterlyKDefaultMin).ToList();
+            List<FilterResultWithHistory> originalResults = null;
+            ObservableCollection<StockResultItem> targetResults = null;
+            decimal weeklyMin = 0, monthlyMin = 0, quarterlyMin = 0;
 
-                _condition1Results.Clear();
-                foreach (var item in filtered)
-                {
-                    _condition1Results.Add(CreateStockResultItem(item));
-                }
-                OnPropertyChanged(nameof(Condition1Count));
+            switch (tableNumber)
+            {
+                case 1:
+                    originalResults = _originalTable1Results;
+                    targetResults = _table1Results;
+                    weeklyMin = _table1WeeklyKDefaultMin;
+                    monthlyMin = _table1MonthlyKDefaultMin;
+                    quarterlyMin = _table1QuarterlyKDefaultMin;
+                    break;
+                case 2:
+                    originalResults = _originalTable2Results;
+                    targetResults = _table2Results;
+                    weeklyMin = _table2WeeklyKDefaultMin;
+                    monthlyMin = _table2MonthlyKDefaultMin;
+                    quarterlyMin = _table2QuarterlyKDefaultMin;
+                    break;
+                case 3:
+                    originalResults = _originalTable3Results;
+                    targetResults = _table3Results;
+                    weeklyMin = _table3WeeklyKDefaultMin;
+                    monthlyMin = _table3MonthlyKDefaultMin;
+                    quarterlyMin = _table3QuarterlyKDefaultMin;
+                    break;
+                case 4:
+                    originalResults = _originalTable4Results;
+                    targetResults = _table4Results;
+                    weeklyMin = _table4WeeklyKDefaultMin;
+                    monthlyMin = _table4MonthlyKDefaultMin;
+                    quarterlyMin = _table4QuarterlyKDefaultMin;
+                    break;
+                case 5:
+                    originalResults = _originalTable5Results;
+                    targetResults = _table5Results;
+                    weeklyMin = _table5WeeklyKDefaultMin;
+                    monthlyMin = _table5MonthlyKDefaultMin;
+                    quarterlyMin = _table5QuarterlyKDefaultMin;
+                    break;
+                case 6:
+                    originalResults = _originalTable6Results;
+                    targetResults = _table6Results;
+                    weeklyMin = _table6WeeklyKDefaultMin;
+                    monthlyMin = _table6MonthlyKDefaultMin;
+                    quarterlyMin = _table6QuarterlyKDefaultMin;
+                    break;
             }
-            else if (conditionNumber == 2 && _originalCondition2Results != null)
-            {
-                var filtered = _originalCondition2Results.Where(r =>
-                    r.WeeklyK >= _condition2WeeklyKDefaultMin &&
-                    r.MonthlyK >= _condition2MonthlyKDefaultMin &&
-                    r.QuarterlyK >= _condition2QuarterlyKDefaultMin).ToList();
 
-                _condition2Results.Clear();
+            if (originalResults != null && targetResults != null)
+            {
+                var filtered = originalResults.Where(r =>
+                    r.WeeklyK >= weeklyMin &&
+                    r.MonthlyK >= monthlyMin &&
+                    r.QuarterlyK >= quarterlyMin).ToList();
+
+                targetResults.Clear();
                 foreach (var item in filtered)
                 {
-                    _condition2Results.Add(CreateStockResultItem(item));
+                    targetResults.Add(CreateStockResultItem(item));
                 }
-                OnPropertyChanged(nameof(Condition2Count));
-            }
-            else if (conditionNumber == 3 && _originalCondition3Results != null)
-            {
-                var filtered = _originalCondition3Results.Where(r =>
-                    r.WeeklyK >= _condition3WeeklyKDefaultMin &&
-                    r.MonthlyK >= _condition3MonthlyKDefaultMin &&
-                    r.QuarterlyK >= _condition3QuarterlyKDefaultMin).ToList();
-
-                _condition3Results.Clear();
-                foreach (var item in filtered)
-                {
-                    _condition3Results.Add(CreateStockResultItem(item));
-                }
-                OnPropertyChanged(nameof(Condition3Count));
+                OnPropertyChanged($"Table{tableNumber}Count");
             }
         }
 
@@ -468,63 +712,57 @@ namespace MQReceiver.ViewModels
         public void UpdateResults(
             List<FilterResultWithHistory> results1,
             List<FilterResultWithHistory> results2,
-            List<FilterResultWithHistory> results3)
+            List<FilterResultWithHistory> results3,
+            List<FilterResultWithHistory> results4,
+            List<FilterResultWithHistory> results5,
+            List<FilterResultWithHistory> results6)
         {
             // 保存原始结果
-            _originalCondition1Results = results1;
-            _originalCondition2Results = results2;
-            _originalCondition3Results = results3;
+            _originalTable1Results = results1;
+            _originalTable2Results = results2;
+            _originalTable3Results = results3;
+            _originalTable4Results = results4;
+            _originalTable5Results = results5;
+            _originalTable6Results = results6;
 
-            // 根据默认最小值过滤并更新条件1结果
-            _condition1Results.Clear();
-            if (results1 != null)
-            {
-                var filtered = results1.Where(r =>
-                    r.WeeklyK >= _condition1WeeklyKDefaultMin &&
-                    r.MonthlyK >= _condition1MonthlyKDefaultMin &&
-                    r.QuarterlyK >= _condition1QuarterlyKDefaultMin).ToList();
-
-                foreach (var result in filtered)
-                {
-                    _condition1Results.Add(CreateStockResultItem(result));
-                }
-            }
-
-            // 根据默认最小值过滤并更新条件2结果
-            _condition2Results.Clear();
-            if (results2 != null)
-            {
-                var filtered = results2.Where(r =>
-                    r.WeeklyK >= _condition2WeeklyKDefaultMin &&
-                    r.MonthlyK >= _condition2MonthlyKDefaultMin &&
-                    r.QuarterlyK >= _condition2QuarterlyKDefaultMin).ToList();
-
-                foreach (var result in filtered)
-                {
-                    _condition2Results.Add(CreateStockResultItem(result));
-                }
-            }
-
-            // 根据默认最小值过滤并更新条件3结果
-            _condition3Results.Clear();
-            if (results3 != null)
-            {
-                var filtered = results3.Where(r =>
-                    r.WeeklyK >= _condition3WeeklyKDefaultMin &&
-                    r.MonthlyK >= _condition3MonthlyKDefaultMin &&
-                    r.QuarterlyK >= _condition3QuarterlyKDefaultMin).ToList();
-
-                foreach (var result in filtered)
-                {
-                    _condition3Results.Add(CreateStockResultItem(result));
-                }
-            }
+            // 更新各表格结果
+            UpdateTableResults(_table1Results, results1, _table1WeeklyKDefaultMin, _table1MonthlyKDefaultMin, _table1QuarterlyKDefaultMin);
+            UpdateTableResults(_table2Results, results2, _table2WeeklyKDefaultMin, _table2MonthlyKDefaultMin, _table2QuarterlyKDefaultMin);
+            UpdateTableResults(_table3Results, results3, _table3WeeklyKDefaultMin, _table3MonthlyKDefaultMin, _table3QuarterlyKDefaultMin);
+            UpdateTableResults(_table4Results, results4, _table4WeeklyKDefaultMin, _table4MonthlyKDefaultMin, _table4QuarterlyKDefaultMin);
+            UpdateTableResults(_table5Results, results5, _table5WeeklyKDefaultMin, _table5MonthlyKDefaultMin, _table5QuarterlyKDefaultMin);
+            UpdateTableResults(_table6Results, results6, _table6WeeklyKDefaultMin, _table6MonthlyKDefaultMin, _table6QuarterlyKDefaultMin);
 
             LastUpdateTime = DateTime.Now;
 
-            OnPropertyChanged(nameof(Condition1Count));
-            OnPropertyChanged(nameof(Condition2Count));
-            OnPropertyChanged(nameof(Condition3Count));
+            OnPropertyChanged(nameof(Table1Count));
+            OnPropertyChanged(nameof(Table2Count));
+            OnPropertyChanged(nameof(Table3Count));
+            OnPropertyChanged(nameof(Table4Count));
+            OnPropertyChanged(nameof(Table5Count));
+            OnPropertyChanged(nameof(Table6Count));
+        }
+
+        private void UpdateTableResults(
+            ObservableCollection<StockResultItem> targetResults,
+            List<FilterResultWithHistory> sourceResults,
+            decimal weeklyMin,
+            decimal monthlyMin,
+            decimal quarterlyMin)
+        {
+            targetResults.Clear();
+            if (sourceResults != null)
+            {
+                var filtered = sourceResults.Where(r =>
+                    r.WeeklyK >= weeklyMin &&
+                    r.MonthlyK >= monthlyMin &&
+                    r.QuarterlyK >= quarterlyMin).ToList();
+
+                foreach (var result in filtered)
+                {
+                    targetResults.Add(CreateStockResultItem(result));
+                }
+            }
         }
 
         /// <summary>
@@ -582,14 +820,20 @@ namespace MQReceiver.ViewModels
         public void Cleanup()
         {
             // 清理集合
-            _condition1Results?.Clear();
-            _condition2Results?.Clear();
-            _condition3Results?.Clear();
+            _table1Results?.Clear();
+            _table2Results?.Clear();
+            _table3Results?.Clear();
+            _table4Results?.Clear();
+            _table5Results?.Clear();
+            _table6Results?.Clear();
 
             // 清理原始结果引用
-            _originalCondition1Results = null;
-            _originalCondition2Results = null;
-            _originalCondition3Results = null;
+            _originalTable1Results = null;
+            _originalTable2Results = null;
+            _originalTable3Results = null;
+            _originalTable4Results = null;
+            _originalTable5Results = null;
+            _originalTable6Results = null;
 
             // 清理事件订阅
             PropertyChanged = null;

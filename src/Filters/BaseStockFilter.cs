@@ -103,18 +103,21 @@ namespace MQReceiver.Filters
             return new List<SimpleFilterResult>(results);
         }
 
-        // 用于调试：记录前几个被跳过的股票原因
+        // 调试开关：设为 true 时输出详细的跳过原因（仅用于开发调试）
+        private static readonly bool _enableDebugLog = false;
         private static int _skipLogCount = 0;
-        private const int MAX_SKIP_LOG = 5;  // 记录前5个跳过原因
+        private const int MAX_SKIP_LOG = 5;
         private static readonly object _logLock = new object();
 
         private void LogFirstSkip(string message)
         {
+            if (!_enableDebugLog) return;
+
             lock (_logLock)
             {
                 if (_skipLogCount < MAX_SKIP_LOG)
                 {
-                    Console.WriteLine($"[调试] 跳过原因 #{_skipLogCount + 1}: {message}");
+                    Console.WriteLine($"[过滤调试] #{_skipLogCount + 1}: {message}");
                     _skipLogCount++;
                 }
             }
@@ -122,6 +125,8 @@ namespace MQReceiver.Filters
 
         private static void ResetSkipLog()
         {
+            if (!_enableDebugLog) return;
+
             lock (_logLock)
             {
                 _skipLogCount = 0;
