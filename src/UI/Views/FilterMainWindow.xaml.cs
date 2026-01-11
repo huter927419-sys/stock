@@ -45,29 +45,17 @@ namespace MQReceiver.Views
 
         /// <summary>
         /// 初始化股票信息缓存
-        /// 如果stock_info表为空或记录较少，会自动从日线数据同步
-        /// 会自动从本地SQL文件导入股票名称
         /// </summary>
         private void InitializeStockInfoCache()
         {
             try
             {
-                // 先修复可能存在的错误数据（stock_name为null或market_code错误，并从SQL文件导入名称）
+                // 修复数据库中的股票信息（包括更新已知股票名称）
                 StockInfoCache.Instance.FixStockInfoData();
+                Console.WriteLine($"[FilterMainWindow] 股票信息缓存已加载: {StockInfoCache.Instance.Count} 条记录");
 
-                // 加载缓存
-                StockInfoCache.Instance.LoadFromDatabase();
-
-                // 如果缓存为空，执行同步
-                if (StockInfoCache.Instance.Count == 0)
-                {
-                    Console.WriteLine("[FilterMainWindow] 股票信息缓存为空，正在从日线数据同步...");
-                    StockInfoCache.Instance.SyncFromDailyData();
-                }
-                else
-                {
-                    Console.WriteLine($"[FilterMainWindow] 股票信息缓存已加载: {StockInfoCache.Instance.Count} 条记录");
-                }
+                // 运行诊断（查看名称加载情况）
+                StockInfoCache.Instance.DiagnoseStockNames();
             }
             catch (Exception ex)
             {
@@ -119,9 +107,11 @@ namespace MQReceiver.Views
             List<FilterResultWithHistory> results3,
             List<FilterResultWithHistory> results4,
             List<FilterResultWithHistory> results5,
-            List<FilterResultWithHistory> results6)
+            List<FilterResultWithHistory> results6,
+            List<FilterResultWithHistory> results7,
+            List<FilterResultWithHistory> results8)
         {
-            _viewModel.UpdateResults(results1, results2, results3, results4, results5, results6);
+            _viewModel.UpdateResults(results1, results2, results3, results4, results5, results6, results7, results8);
         }
 
         /// <summary>
@@ -155,13 +145,13 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// 打开股票图表窗口
+        /// 打开股票图表窗口（传入实时缓存以支持盘中数据）
         /// </summary>
         private void OpenStockChart(string stockCode)
         {
             try
             {
-                var chartWindow = new WebChartWindow(stockCode);
+                var chartWindow = new WebChartWindow(stockCode, _sharedCache);
                 chartWindow.Show();
             }
             catch (Exception ex)
@@ -614,8 +604,8 @@ namespace MQReceiver.Views
         {
             Dispatcher.Invoke(() =>
             {
-                UpdateResults(e.Table1Results, e.Table2Results, e.Table3Results, e.Table4Results, e.Table5Results, e.Table6Results);
-                AppendLog($"过滤完成: 表1={e.Table1Results?.Count ?? 0}, 表2={e.Table2Results?.Count ?? 0}, 表3={e.Table3Results?.Count ?? 0}, 表4={e.Table4Results?.Count ?? 0}, 表5={e.Table5Results?.Count ?? 0}, 表6={e.Table6Results?.Count ?? 0}");
+                UpdateResults(e.Table1Results, e.Table2Results, e.Table3Results, e.Table4Results, e.Table5Results, e.Table6Results, e.Table7Results, e.Table8Results);
+                AppendLog($"过滤完成: 表1={e.Table1Results?.Count ?? 0}, 表2={e.Table2Results?.Count ?? 0}, 表3={e.Table3Results?.Count ?? 0}, 表4={e.Table4Results?.Count ?? 0}, 表5={e.Table5Results?.Count ?? 0}, 表6={e.Table6Results?.Count ?? 0}, 表7={e.Table7Results?.Count ?? 0}, 表8={e.Table8Results?.Count ?? 0}");
                 UpdateCacheStatus();
             });
         }

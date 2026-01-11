@@ -12,18 +12,25 @@ namespace MQReceiver.Services
     /// <summary>
     /// 图表数据服务
     /// 负责从数据库加载K线数据和KD指标数据
+    /// 支持合并实时数据显示当日K线
     /// </summary>
     public class ChartService
     {
         private readonly string connectionString;
         private readonly KDCalculator kdCalculator;
         private readonly ExRightsAdjustmentCalculator exRightsCalculator;
+        private readonly RealTimeDataCache realTimeCache;
 
-        public ChartService()
+        public ChartService() : this(null)
+        {
+        }
+
+        public ChartService(RealTimeDataCache cache)
         {
             connectionString = DatabaseConnectionHelper.BuildConnectionString();
             kdCalculator = new KDCalculator();
             exRightsCalculator = new ExRightsAdjustmentCalculator();
+            realTimeCache = cache;
         }
 
         /// <summary>
@@ -147,11 +154,13 @@ namespace MQReceiver.Services
 
         /// <summary>
         /// 加载日K线数据（使用前复权价格）
+        /// 如果有实时数据且当日数据库无数据，则添加实时K线
         /// </summary>
         private List<Models.CandleDataPoint> LoadDailyKlineData(string stockCode, int days)
         {
             var result = new List<Models.CandleDataPoint>();
-            DateTime endDate = DateTime.Now.Date;
+            DateTime today = DateTime.Now.Date;
+            DateTime endDate = today;
             DateTime startDate = endDate.AddDays(-days);
 
             try
@@ -203,6 +212,9 @@ namespace MQReceiver.Services
                         }
                     }
                 }
+
+                // 尝试添加实时数据作为当日K线
+                AppendRealTimeCandle(result, stockCode, today);
             }
             catch (Exception ex)
             {
@@ -210,6 +222,65 @@ namespace MQReceiver.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 将实时数据添加为当日K线（仅当今日是交易日且数据库中没有当日数据）
+        /// </summary>
+        private void AppendRealTimeCandle(List<Models.CandleDataPoint> result, string stockCode, DateTime today)
+        {
+            if (realTimeCache == null)
+                return;
+
+            var realTimeData = realTimeCache.GetData(stockCode);
+            if (realTimeData == null)
+                return;
+
+            // 检查实时数据是否有效（有价格数据）
+            if (realTimeData.Open <= 0 || realTimeData.NewPrice <= 0)
+                return;
+
+            // 检查数据库中是否已有今日数据
+            bool hasTodayData = result.Count > 0 && result[result.Count - 1].Date.Date == today;
+
+            if (hasTodayData)
+            {
+                // 更新今日K线数据（用实时数据覆盖）
+                var todayCandle = result[result.Count - 1];
+                todayCandle.High = Math.Max(todayCandle.High, (double)realTimeData.High);
+                todayCandle.Low = Math.Min(todayCandle.Low, (double)realTimeData.Low);
+                todayCandle.Close = (double)realTimeData.NewPrice;
+                todayCandle.Volume = (double)realTimeData.Volume;
+            }
+            else
+            {
+                // 仅在今日是工作日时添加实时数据（避免在周末/节假日添加上一交易日的重复数据）
+                // 如果今日是周末或数据库中没有任何近期数据，则不添加
+                if (today.DayOfWeek == DayOfWeek.Saturday || today.DayOfWeek == DayOfWeek.Sunday)
+                    return;
+
+                // 检查最后一个交易日是否是昨天（如果不是，说明今天可能是节假日）
+                if (result.Count > 0)
+                {
+                    var lastTradeDate = result[result.Count - 1].Date.Date;
+                    var daysSinceLastTrade = (today - lastTradeDate).Days;
+
+                    // 如果距离上一个交易日超过3天，很可能今天是长假期，不添加实时数据
+                    if (daysSinceLastTrade > 3)
+                        return;
+                }
+
+                // 添加新的今日K线（使用实时数据）
+                result.Add(new Models.CandleDataPoint
+                {
+                    Date = today,
+                    Open = (double)realTimeData.Open,
+                    High = (double)realTimeData.High,
+                    Low = (double)realTimeData.Low,
+                    Close = (double)realTimeData.NewPrice,
+                    Volume = (double)realTimeData.Volume
+                });
+            }
         }
 
         /// <summary>

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
+using MQReceiver.Cache;
 using MQReceiver.Models;
 using MQReceiver.Services;
 
@@ -16,11 +17,17 @@ namespace MQReceiver.Views
         private ChartData _chartData;
         private bool _isWebViewInitialized = false;
         private string _stockCode;
+        private RealTimeDataCache _realTimeCache;
 
-        public WebChartWindow(string stockCode)
+        public WebChartWindow(string stockCode) : this(stockCode, null)
+        {
+        }
+
+        public WebChartWindow(string stockCode, RealTimeDataCache realTimeCache)
         {
             InitializeComponent();
             _stockCode = stockCode;
+            _realTimeCache = realTimeCache;
             LoadChartData(stockCode);
         }
 
@@ -38,7 +45,7 @@ namespace MQReceiver.Views
         {
             try
             {
-                var chartService = new ChartService();
+                var chartService = new ChartService(_realTimeCache);
                 _chartData = chartService.LoadChartData(stockCode, 180);
 
                 if (_chartData == null || _chartData.DailyKline.Count == 0)
@@ -180,7 +187,7 @@ namespace MQReceiver.Views
                 var c = candles[i];
                 result[i] = new
                 {
-                    time = c.Date.ToString("yyyy-MM-dd"),
+                    time = new { year = c.Date.Year, month = c.Date.Month, day = c.Date.Day },
                     open = c.Open,
                     high = c.High,
                     low = c.Low,
@@ -201,7 +208,7 @@ namespace MQReceiver.Views
                 var c = candles[i];
                 result[i] = new
                 {
-                    time = c.Date.ToString("yyyy-MM-dd"),
+                    time = new { year = c.Date.Year, month = c.Date.Month, day = c.Date.Day },
                     value = c.Volume,
                     color = c.IsRising ? "rgba(239, 83, 80, 0.5)" : "rgba(38, 166, 154, 0.5)"
                 };
@@ -220,7 +227,7 @@ namespace MQReceiver.Views
                 var kd = kdList[i];
                 result[i] = new
                 {
-                    time = kd.Date.ToString("yyyy-MM-dd"),
+                    time = new { year = kd.Date.Year, month = kd.Date.Month, day = kd.Date.Day },
                     value = isK ? kd.K : kd.D
                 };
             }

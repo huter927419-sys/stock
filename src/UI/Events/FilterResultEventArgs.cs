@@ -11,34 +11,44 @@ namespace MQReceiver.Events
     public class FilterResultEventArgs : EventArgs
     {
         /// <summary>
-        /// 表格一结果：月K > 季K AND 周K上穿月K
+        /// 表格一结果：强多金叉
         /// </summary>
         public List<FilterResultWithHistory> Table1Results { get; set; }
 
         /// <summary>
-        /// 表格二结果：月K > 季K AND 周K > 月K（不含上穿当天）
+        /// 表格二结果：中多金叉
         /// </summary>
         public List<FilterResultWithHistory> Table2Results { get; set; }
 
         /// <summary>
-        /// 表格三结果：月K less than 季K AND 周K上穿季K
+        /// 表格三结果：强多排列
         /// </summary>
         public List<FilterResultWithHistory> Table3Results { get; set; }
 
         /// <summary>
-        /// 表格四结果：月K less than 季K AND 周K > 季K（不含上穿当天）
+        /// 表格四结果：中多排列
         /// </summary>
         public List<FilterResultWithHistory> Table4Results { get; set; }
 
         /// <summary>
-        /// 表格五结果：月K > 季K AND 周K less than 月K
+        /// 表格五结果：强多缠绕
         /// </summary>
         public List<FilterResultWithHistory> Table5Results { get; set; }
 
         /// <summary>
-        /// 表格六结果：月K less than 季K AND 周K less than 季K
+        /// 表格六结果：中多缠绕
         /// </summary>
         public List<FilterResultWithHistory> Table6Results { get; set; }
+
+        /// <summary>
+        /// 表格七结果：强多反弹
+        /// </summary>
+        public List<FilterResultWithHistory> Table7Results { get; set; }
+
+        /// <summary>
+        /// 表格八结果：中多反弹
+        /// </summary>
+        public List<FilterResultWithHistory> Table8Results { get; set; }
 
         /// <summary>
         /// 过滤执行时间
@@ -63,6 +73,8 @@ namespace MQReceiver.Events
             Table4Results = new List<FilterResultWithHistory>();
             Table5Results = new List<FilterResultWithHistory>();
             Table6Results = new List<FilterResultWithHistory>();
+            Table7Results = new List<FilterResultWithHistory>();
+            Table8Results = new List<FilterResultWithHistory>();
             FilterTime = DateTime.Now;
         }
     }

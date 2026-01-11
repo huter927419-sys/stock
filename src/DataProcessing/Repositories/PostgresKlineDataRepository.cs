@@ -24,6 +24,7 @@ namespace MQReceiver.Repositories
 
         /// <summary>
         /// 获取指定时间范围内的日线数据
+        /// 注意：当前使用原始价格（未复权），待复权数据填充后可切换为复权价格
         /// </summary>
         public List<DailyKlineData> GetDailyData(string stockCode, DateTime startDate, DateTime endDate)
         {
@@ -35,6 +36,8 @@ namespace MQReceiver.Repositories
                 {
                     connection.Open();
 
+                    // 暂时使用原始价格，等复权数据填充后再切换
+                    // 切换方法：将下面的 open_price 改为 COALESCE(adjusted_open_price, open_price)
                     string sql = @"
                         SELECT trade_date, open_price, high_price, low_price, close_price, volume
                         FROM stock_daily_data
@@ -77,6 +80,7 @@ namespace MQReceiver.Repositories
 
         /// <summary>
         /// 获取最新的日线数据
+        /// 注意：当前使用原始价格（未复权），待复权数据填充后可切换为复权价格
         /// </summary>
         public List<DailyKlineData> GetLatestDailyData(string stockCode, int count)
         {
@@ -88,6 +92,7 @@ namespace MQReceiver.Repositories
                 {
                     connection.Open();
 
+                    // 暂时使用原始价格，等复权数据填充后再切换
                     string sql = @"
                         SELECT trade_date, open_price, high_price, low_price, close_price, volume
                         FROM stock_daily_data

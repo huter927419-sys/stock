@@ -7,6 +7,14 @@ namespace MQReceiver.Models
     {
         public string StockCode { get; set; }
         public string StockName { get; set; }
+
+        /// <summary>
+        /// 涨幅（百分比，如 5.23 表示 5.23%）
+        /// 今日有交易：今日收盘价相对昨日收盘价的涨幅
+        /// 今日无交易：最近交易日的涨幅
+        /// </summary>
+        public decimal? PriceChangePercent { get; set; }
+
         public decimal WeeklyK { get; set; }
         public decimal MonthlyK { get; set; }
         public decimal QuarterlyK { get; set; }

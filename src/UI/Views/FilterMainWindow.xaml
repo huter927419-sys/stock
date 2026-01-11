@@ -171,47 +171,55 @@
             </StackPanel>
         </Border>
 
-        <!-- 六个面板（Flow布局，根据窗口宽度自动换行） -->
+        <!-- 八个面板（Flow布局，根据窗口宽度自动换行） -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       Background="#1E1E1E">
-            <WrapPanel Orientation="Horizontal"
-                      HorizontalAlignment="Left"
-                      VerticalAlignment="Top"
-                      Margin="10">
+            <StackPanel>
+                <!-- 全局M1/M2/M3阈值配置区域 -->
+                <Border Background="#252526" Margin="10,10,10,5" Padding="15" BorderBrush="#4A9EFF" BorderThickness="1" CornerRadius="4">
+                    <StackPanel>
+                        <TextBlock Text="全局阈值设置（适用于所有8个过滤条件）" FontSize="13" FontWeight="SemiBold" Foreground="#D4D4D4" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="M1(默认78):" FontSize="11" Foreground="#B8B8B8" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                            <TextBox Text="{Binding GlobalM1, UpdateSourceTrigger=PropertyChanged}" Width="50" Height="24" FontSize="11"
+                                     Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Padding="4" Margin="0,0,15,0"/>
 
-                <!-- 表格一：月K > 季K AND 周K上穿月K -->
+                            <TextBlock Text="M2(默认65):" FontSize="11" Foreground="#B8B8B8" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                            <TextBox Text="{Binding GlobalM2, UpdateSourceTrigger=PropertyChanged}" Width="50" Height="24" FontSize="11"
+                                     Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Padding="4" Margin="0,0,15,0"/>
+
+                            <TextBlock Text="M3(默认50):" FontSize="11" Foreground="#B8B8B8" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                            <TextBox Text="{Binding GlobalM3, UpdateSourceTrigger=PropertyChanged}" Width="50" Height="24" FontSize="11"
+                                     Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Padding="4" Margin="0,0,15,0"/>
+
+                            <TextBlock Text="{Binding GlobalThresholdDisplay}" FontSize="11" Foreground="#4A9EFF" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 八个表格的WrapPanel -->
+                <WrapPanel Orientation="Horizontal"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Top"
+                          Margin="10">
+
+                <!-- 表格一：强多金叉 -->
                 <Border BorderBrush="#4A9EFF" BorderThickness="1.5"
                         CornerRadius="4"
                         Margin="8"
                         Padding="12"
-                        Width="340"
+                        Width="320"
                         Background="#2D2D30">
                     <StackPanel>
-                        <TextBlock Text="表格一：月K&gt;季K AND 周K上穿月K"
+                        <TextBlock Text="表格一：强多金叉"
                                    FontSize="15" FontWeight="SemiBold"
                                    Foreground="#B8B8B8"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Table1Count, StringFormat='共 {0} 只股票'}"
                                    FontSize="11"
                                    Foreground="#6E6E6E"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,12"/>
 
-                        <!-- 过滤条件设置 -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Button Content="设置" Width="50" Height="24" Click="Table1Settings_Click"
-                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="1" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                            <TextBlock Text="{Binding Table1SettingsDisplay}" FontSize="11" Foreground="#4A9EFF" VerticalAlignment="Center"/>
-                        </StackPanel>
                         <DataGrid ItemsSource="{Binding Table1Results}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -259,10 +267,7 @@
                                 </Style>
                             </DataGrid.CellStyle>
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <TextBlock Text="名称" HorizontalAlignment="Center"/>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="名称" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Cursor="Hand"
@@ -277,14 +282,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table1WeeklyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
@@ -292,14 +298,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table1MonthlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="月K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
@@ -307,14 +306,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table1QuarterlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="季K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
@@ -327,39 +319,23 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 表格二：月K > 季K AND 周K > 月K（不含上穿当天） -->
+                <!-- 表格二：中多金叉 -->
                 <Border BorderBrush="#FF6B6B" BorderThickness="1.5"
                         CornerRadius="4"
                         Margin="8"
                         Padding="12"
-                        Width="340"
+                        Width="320"
                         Background="#2D2D30">
                     <StackPanel>
-                        <TextBlock Text="表格二：月K&gt;季K AND 周K&gt;月K"
+                        <TextBlock Text="表格二：中多金叉"
                                    FontSize="15" FontWeight="SemiBold"
                                    Foreground="#B8B8B8"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Table2Count, StringFormat='共 {0} 只股票'}"
                                    FontSize="11"
                                    Foreground="#6E6E6E"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,12"/>
 
-                        <!-- 过滤条件设置 -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Button Content="设置" Width="50" Height="24" Click="Table2Settings_Click"
-                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="1" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                            <TextBlock Text="{Binding Table2SettingsDisplay}" FontSize="11" Foreground="#FF6B6B" VerticalAlignment="Center"/>
-                        </StackPanel>
                         <DataGrid ItemsSource="{Binding Table2Results}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -407,10 +383,7 @@
                                 </Style>
                             </DataGrid.CellStyle>
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <TextBlock Text="名称" HorizontalAlignment="Center"/>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="名称" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Cursor="Hand"
@@ -425,14 +398,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table2WeeklyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
@@ -440,14 +414,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table2MonthlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="月K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
@@ -455,14 +422,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table2QuarterlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="季K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
@@ -475,39 +435,23 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 表格三：月K < 季K AND 周K上穿季K -->
+                <!-- 表格三：强多排列 -->
                 <Border BorderBrush="#4ECDC4" BorderThickness="1.5"
                         CornerRadius="4"
                         Margin="8"
                         Padding="12"
-                        Width="340"
+                        Width="320"
                         Background="#2D2D30">
                     <StackPanel>
-                        <TextBlock Text="表格三：月K&lt;季K AND 周K上穿季K"
+                        <TextBlock Text="表格三：强多排列"
                                    FontSize="15" FontWeight="SemiBold"
                                    Foreground="#B8B8B8"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Table3Count, StringFormat='共 {0} 只股票'}"
                                    FontSize="11"
                                    Foreground="#6E6E6E"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,12"/>
 
-                        <!-- 过滤条件设置 -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Button Content="设置" Width="50" Height="24" Click="Table3Settings_Click"
-                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="1" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                            <TextBlock Text="{Binding Table3SettingsDisplay}" FontSize="11" Foreground="#4ECDC4" VerticalAlignment="Center"/>
-                        </StackPanel>
                         <DataGrid ItemsSource="{Binding Table3Results}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -555,10 +499,7 @@
                                 </Style>
                             </DataGrid.CellStyle>
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <TextBlock Text="名称" HorizontalAlignment="Center"/>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="名称" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Cursor="Hand"
@@ -573,14 +514,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table3WeeklyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
@@ -588,14 +530,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table3MonthlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="月K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
@@ -603,14 +538,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table3QuarterlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="季K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
@@ -623,39 +551,23 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 表格四：月K < 季K AND 周K > 季K（不含上穿当天） -->
+                <!-- 表格四：中多排列 -->
                 <Border BorderBrush="#FFD93D" BorderThickness="1.5"
                         CornerRadius="4"
                         Margin="8"
                         Padding="12"
-                        Width="340"
+                        Width="320"
                         Background="#2D2D30">
                     <StackPanel>
-                        <TextBlock Text="表格四：月K&lt;季K AND 周K&gt;季K"
+                        <TextBlock Text="表格四：中多排列"
                                    FontSize="15" FontWeight="SemiBold"
                                    Foreground="#B8B8B8"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Table4Count, StringFormat='共 {0} 只股票'}"
                                    FontSize="11"
                                    Foreground="#6E6E6E"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,12"/>
 
-                        <!-- 过滤条件设置 -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Button Content="设置" Width="50" Height="24" Click="Table4Settings_Click"
-                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="1" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                            <TextBlock Text="{Binding Table4SettingsDisplay}" FontSize="11" Foreground="#FFD93D" VerticalAlignment="Center"/>
-                        </StackPanel>
                         <DataGrid ItemsSource="{Binding Table4Results}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -703,10 +615,7 @@
                                 </Style>
                             </DataGrid.CellStyle>
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <TextBlock Text="名称" HorizontalAlignment="Center"/>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="名称" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Cursor="Hand"
@@ -721,14 +630,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table4WeeklyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
@@ -736,14 +646,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table4MonthlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="月K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
@@ -751,14 +654,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table4QuarterlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="季K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
@@ -771,39 +667,23 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 表格五：月K > 季K AND 周K < 月K -->
+                <!-- 表格五：强多缠绕 -->
                 <Border BorderBrush="#A78BFA" BorderThickness="1.5"
                         CornerRadius="4"
                         Margin="8"
                         Padding="12"
-                        Width="340"
+                        Width="320"
                         Background="#2D2D30">
                     <StackPanel>
-                        <TextBlock Text="表格五：月K&gt;季K AND 周K&lt;月K"
+                        <TextBlock Text="表格五：强多缠绕"
                                    FontSize="15" FontWeight="SemiBold"
                                    Foreground="#B8B8B8"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Table5Count, StringFormat='共 {0} 只股票'}"
                                    FontSize="11"
                                    Foreground="#6E6E6E"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,12"/>
 
-                        <!-- 过滤条件设置 -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Button Content="设置" Width="50" Height="24" Click="Table5Settings_Click"
-                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="1" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                            <TextBlock Text="{Binding Table5SettingsDisplay}" FontSize="11" Foreground="#A78BFA" VerticalAlignment="Center"/>
-                        </StackPanel>
                         <DataGrid ItemsSource="{Binding Table5Results}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -851,10 +731,7 @@
                                 </Style>
                             </DataGrid.CellStyle>
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <TextBlock Text="名称" HorizontalAlignment="Center"/>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="名称" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Cursor="Hand"
@@ -869,14 +746,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table5WeeklyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
@@ -884,14 +762,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table5MonthlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="月K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
@@ -899,14 +770,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table5QuarterlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="季K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
@@ -919,39 +783,23 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 表格六：月K < 季K AND 周K < 季K -->
+                <!-- 表格六：中多缠绕 -->
                 <Border BorderBrush="#F472B6" BorderThickness="1.5"
                         CornerRadius="4"
                         Margin="8"
                         Padding="12"
-                        Width="340"
+                        Width="320"
                         Background="#2D2D30">
                     <StackPanel>
-                        <TextBlock Text="表格六：月K&lt;季K AND 周K&lt;季K"
+                        <TextBlock Text="表格六：中多缠绕"
                                    FontSize="15" FontWeight="SemiBold"
                                    Foreground="#B8B8B8"
                                    Margin="0,0,0,8"/>
                         <TextBlock Text="{Binding Table6Count, StringFormat='共 {0} 只股票'}"
                                    FontSize="11"
                                    Foreground="#6E6E6E"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,12"/>
 
-                        <!-- 过滤条件设置 -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                            <Button Content="设置" Width="50" Height="24" Click="Table6Settings_Click"
-                                    Background="#3F3F46" Foreground="#D4D4D4" BorderBrush="#5A5A5A" Margin="0,0,10,0">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="1" CornerRadius="3">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
-                            <TextBlock Text="{Binding Table6SettingsDisplay}" FontSize="11" Foreground="#F472B6" VerticalAlignment="Center"/>
-                        </StackPanel>
                         <DataGrid ItemsSource="{Binding Table6Results}"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
@@ -999,10 +847,7 @@
                                 </Style>
                             </DataGrid.CellStyle>
                             <DataGrid.Columns>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <TextBlock Text="名称" HorizontalAlignment="Center"/>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="名称" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Cursor="Hand"
@@ -1017,14 +862,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="60">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="周K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table6WeeklyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
@@ -1032,14 +878,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="月K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table6MonthlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="月K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
@@ -1047,14 +886,239 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Width="70">
-                                    <DataGridTemplateColumn.Header>
-                                        <StackPanel DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=DataGrid}}">
-                                            <TextBlock Text="季K" HorizontalAlignment="Center"/>
-                                            <TextBlock Text="{Binding Table6QuarterlyKDefaultMin, StringFormat='({0})'}"
-                                                       FontSize="9" Foreground="#858585" HorizontalAlignment="Center"/>
-                                        </StackPanel>
-                                    </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn Header="季K" Width="50">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
+                                                       Foreground="{Binding QuarterlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 表格七：强多反弹 -->
+                <Border BorderBrush="#FB923C" BorderThickness="1.5"
+                        CornerRadius="4"
+                        Margin="8"
+                        Padding="12"
+                        Width="320"
+                        Background="#2D2D30">
+                    <StackPanel>
+                        <TextBlock Text="表格七：强多反弹"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#B8B8B8"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding Table7Count, StringFormat='共 {0} 只股票'}"
+                                   FontSize="11"
+                                   Foreground="#6E6E6E"
+                                   Margin="0,0,0,12"/>
+
+                        <DataGrid ItemsSource="{Binding Table7Results}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  GridLinesVisibility="All"
+                                  HeadersVisibility="Column"
+                                  CanUserResizeColumns="True"
+                                  CanUserSortColumns="True"
+                                  MaxHeight="500"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick"
+                                  Tag="7"
+                                  Background="#2D2D30"
+                                  Foreground="#D4D4D4"
+                                  BorderBrush="#3F3F46"
+                                  RowBackground="#2D2D30"
+                                  AlternatingRowBackground="#252526"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  >
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#3F3F46"/>
+                                    <Setter Property="Foreground" Value="#B8B8B8"/>
+                                    <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="#3F3F46"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,4"/>
+                                    <Setter Property="Foreground" Value="#D4D4D4"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="#3F3F46"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.CellStyle>
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Header="名称" Width="60">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Cursor="Hand"
+                                                       MouseLeftButtonDown="StockName_MouseLeftButtonDown"
+                                                       Tag="{Binding StockCode}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding StockName}">
+                                                <Hyperlink Foreground="#6A9EFF">
+                                                    <Run Text="{Binding StockName}"/>
+                                                </Hyperlink>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
+                                                       Foreground="{Binding WeeklyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="月K" Width="50">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
+                                                       Foreground="{Binding MonthlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="季K" Width="50">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
+                                                       Foreground="{Binding QuarterlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 表格八：中多反弹 -->
+                <Border BorderBrush="#34D399" BorderThickness="1.5"
+                        CornerRadius="4"
+                        Margin="8"
+                        Padding="12"
+                        Width="320"
+                        Background="#2D2D30">
+                    <StackPanel>
+                        <TextBlock Text="表格八：中多反弹"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="#B8B8B8"
+                                   Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding Table8Count, StringFormat='共 {0} 只股票'}"
+                                   FontSize="11"
+                                   Foreground="#6E6E6E"
+                                   Margin="0,0,0,12"/>
+
+                        <DataGrid ItemsSource="{Binding Table8Results}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  SelectionMode="Single"
+                                  GridLinesVisibility="All"
+                                  HeadersVisibility="Column"
+                                  CanUserResizeColumns="True"
+                                  CanUserSortColumns="True"
+                                  MaxHeight="500"
+                                  MouseDoubleClick="DataGrid_MouseDoubleClick"
+                                  Tag="8"
+                                  Background="#2D2D30"
+                                  Foreground="#D4D4D4"
+                                  BorderBrush="#3F3F46"
+                                  RowBackground="#2D2D30"
+                                  AlternatingRowBackground="#252526"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True"
+                                  VirtualizingPanel.IsVirtualizing="True"
+                                  VirtualizingPanel.VirtualizationMode="Recycling"
+                                  >
+                            <DataGrid.ColumnHeaderStyle>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background" Value="#3F3F46"/>
+                                    <Setter Property="Foreground" Value="#B8B8B8"/>
+                                    <Setter Property="BorderBrush" Value="#5A5A5A"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,6"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="FontSize" Value="11"/>
+                                </Style>
+                            </DataGrid.ColumnHeaderStyle>
+                            <DataGrid.CellStyle>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="#3F3F46"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    <Setter Property="Padding" Value="8,4"/>
+                                    <Setter Property="Foreground" Value="#D4D4D4"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter Property="Background" Value="#3F3F46"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.CellStyle>
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Header="名称" Width="60">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Cursor="Hand"
+                                                       MouseLeftButtonDown="StockName_MouseLeftButtonDown"
+                                                       Tag="{Binding StockCode}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding StockName}">
+                                                <Hyperlink Foreground="#6A9EFF">
+                                                    <Run Text="{Binding StockName}"/>
+                                                </Hyperlink>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="涨幅" Width="55">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding PriceChangeDisplay}"
+                                                       Foreground="{Binding PriceChangeColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="周K" Width="50">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding WeeklyK, StringFormat=F2}"
+                                                       Foreground="{Binding WeeklyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="月K" Width="50">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding MonthlyK, StringFormat=F2}"
+                                                       Foreground="{Binding MonthlyKColor}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="季K" Width="50">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <TextBlock Text="{Binding QuarterlyK, StringFormat=F2}"
@@ -1068,6 +1132,7 @@
                 </Border>
 
             </WrapPanel>
+            </StackPanel>
         </ScrollViewer>
 
         <!-- MQ日志面板 -->

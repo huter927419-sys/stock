@@ -19,6 +19,8 @@ namespace MQReceiver.ViewModels
         private ObservableCollection<StockResultItem> _table4Results;
         private ObservableCollection<StockResultItem> _table5Results;
         private ObservableCollection<StockResultItem> _table6Results;
+        private ObservableCollection<StockResultItem> _table7Results;
+        private ObservableCollection<StockResultItem> _table8Results;
         private DateTime _lastUpdateTime;
         private static readonly Configuration.IConfigurationProvider _configProvider = Configuration.AppConfigProvider.Instance;
 
@@ -65,6 +67,11 @@ namespace MQReceiver.ViewModels
         private bool _table6MonthlyKSelected = false;
         private bool _table6QuarterlyKSelected = false;
 
+        // 全局M1/M2/M3阈值（所有8个表格共用）
+        private decimal _globalM1 = 78;
+        private decimal _globalM2 = 65;
+        private decimal _globalM3 = 50;
+
         public FilterMainViewModel()
         {
             _table1Results = new ObservableCollection<StockResultItem>();
@@ -73,6 +80,8 @@ namespace MQReceiver.ViewModels
             _table4Results = new ObservableCollection<StockResultItem>();
             _table5Results = new ObservableCollection<StockResultItem>();
             _table6Results = new ObservableCollection<StockResultItem>();
+            _table7Results = new ObservableCollection<StockResultItem>();
+            _table8Results = new ObservableCollection<StockResultItem>();
             _lastUpdateTime = DateTime.Now;
 
             // 从配置文件加载默认值
@@ -115,6 +124,11 @@ namespace MQReceiver.ViewModels
                 _table6WeeklyKDefaultMin = _configProvider.GetDecimal("Filter6_WeeklyKDefaultMin", 0);
                 _table6MonthlyKDefaultMin = _configProvider.GetDecimal("Filter6_MonthlyKDefaultMin", 0);
                 _table6QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter6_QuarterlyKDefaultMin", 0);
+
+                // 加载全局M1/M2/M3阈值
+                _globalM1 = _configProvider.GetDecimal("GlobalThreshold_M1", 78m);
+                _globalM2 = _configProvider.GetDecimal("GlobalThreshold_M2", 65m);
+                _globalM3 = _configProvider.GetDecimal("GlobalThreshold_M3", 50m);
             }
             catch
             {
@@ -189,12 +203,36 @@ namespace MQReceiver.ViewModels
             }
         }
 
+        public ObservableCollection<StockResultItem> Table7Results
+        {
+            get { return _table7Results; }
+            set
+            {
+                _table7Results = value;
+                OnPropertyChanged(nameof(Table7Results));
+                OnPropertyChanged(nameof(Table7Count));
+            }
+        }
+
+        public ObservableCollection<StockResultItem> Table8Results
+        {
+            get { return _table8Results; }
+            set
+            {
+                _table8Results = value;
+                OnPropertyChanged(nameof(Table8Results));
+                OnPropertyChanged(nameof(Table8Count));
+            }
+        }
+
         public int Table1Count => _table1Results?.Count ?? 0;
         public int Table2Count => _table2Results?.Count ?? 0;
         public int Table3Count => _table3Results?.Count ?? 0;
         public int Table4Count => _table4Results?.Count ?? 0;
         public int Table5Count => _table5Results?.Count ?? 0;
         public int Table6Count => _table6Results?.Count ?? 0;
+        public int Table7Count => _table7Results?.Count ?? 0;
+        public int Table8Count => _table8Results?.Count ?? 0;
 
         public DateTime LastUpdateTime
         {
@@ -213,6 +251,8 @@ namespace MQReceiver.ViewModels
         private List<FilterResultWithHistory> _originalTable4Results;
         private List<FilterResultWithHistory> _originalTable5Results;
         private List<FilterResultWithHistory> _originalTable6Results;
+        private List<FilterResultWithHistory> _originalTable7Results;
+        private List<FilterResultWithHistory> _originalTable8Results;
 
         // 表格1的默认最小值属性
         public decimal Table1WeeklyKDefaultMin
@@ -624,6 +664,55 @@ namespace MQReceiver.ViewModels
         public string Table5SettingsDisplay => $"周K({_table5WeeklyKDefaultMin}), 月K({_table5MonthlyKDefaultMin}), 季K({_table5QuarterlyKDefaultMin})";
         public string Table6SettingsDisplay => $"周K({_table6WeeklyKDefaultMin}), 月K({_table6MonthlyKDefaultMin}), 季K({_table6QuarterlyKDefaultMin})";
 
+        // 全局M1/M2/M3阈值属性（所有8个表格共用）
+        public decimal GlobalM1
+        {
+            get { return _globalM1; }
+            set
+            {
+                if (_globalM1 != value)
+                {
+                    _globalM1 = value;
+                    _configProvider.SetDecimal("GlobalThreshold_M1", value);
+                    OnPropertyChanged(nameof(GlobalM1));
+                    OnPropertyChanged(nameof(GlobalThresholdDisplay));
+                }
+            }
+        }
+
+        public decimal GlobalM2
+        {
+            get { return _globalM2; }
+            set
+            {
+                if (_globalM2 != value)
+                {
+                    _globalM2 = value;
+                    _configProvider.SetDecimal("GlobalThreshold_M2", value);
+                    OnPropertyChanged(nameof(GlobalM2));
+                    OnPropertyChanged(nameof(GlobalThresholdDisplay));
+                }
+            }
+        }
+
+        public decimal GlobalM3
+        {
+            get { return _globalM3; }
+            set
+            {
+                if (_globalM3 != value)
+                {
+                    _globalM3 = value;
+                    _configProvider.SetDecimal("GlobalThreshold_M3", value);
+                    OnPropertyChanged(nameof(GlobalM3));
+                    OnPropertyChanged(nameof(GlobalThresholdDisplay));
+                }
+            }
+        }
+
+        // 全局阈值显示文本
+        public string GlobalThresholdDisplay => $"M1({_globalM1}), M2({_globalM2}), M3({_globalM3})";
+
         /// <summary>
         /// 刷新过滤结果（当默认最小值改变时调用）
         /// </summary>
@@ -715,7 +804,9 @@ namespace MQReceiver.ViewModels
             List<FilterResultWithHistory> results3,
             List<FilterResultWithHistory> results4,
             List<FilterResultWithHistory> results5,
-            List<FilterResultWithHistory> results6)
+            List<FilterResultWithHistory> results6,
+            List<FilterResultWithHistory> results7,
+            List<FilterResultWithHistory> results8)
         {
             // 保存原始结果
             _originalTable1Results = results1;
@@ -724,14 +815,18 @@ namespace MQReceiver.ViewModels
             _originalTable4Results = results4;
             _originalTable5Results = results5;
             _originalTable6Results = results6;
+            _originalTable7Results = results7;
+            _originalTable8Results = results8;
 
-            // 更新各表格结果
-            UpdateTableResults(_table1Results, results1, _table1WeeklyKDefaultMin, _table1MonthlyKDefaultMin, _table1QuarterlyKDefaultMin);
-            UpdateTableResults(_table2Results, results2, _table2WeeklyKDefaultMin, _table2MonthlyKDefaultMin, _table2QuarterlyKDefaultMin);
-            UpdateTableResults(_table3Results, results3, _table3WeeklyKDefaultMin, _table3MonthlyKDefaultMin, _table3QuarterlyKDefaultMin);
-            UpdateTableResults(_table4Results, results4, _table4WeeklyKDefaultMin, _table4MonthlyKDefaultMin, _table4QuarterlyKDefaultMin);
-            UpdateTableResults(_table5Results, results5, _table5WeeklyKDefaultMin, _table5MonthlyKDefaultMin, _table5QuarterlyKDefaultMin);
-            UpdateTableResults(_table6Results, results6, _table6WeeklyKDefaultMin, _table6MonthlyKDefaultMin, _table6QuarterlyKDefaultMin);
+            // 更新各表格结果（新8个条件不需要默认最小值过滤，直接显示）
+            UpdateTableResults(_table1Results, results1, 0, 0, 0);
+            UpdateTableResults(_table2Results, results2, 0, 0, 0);
+            UpdateTableResults(_table3Results, results3, 0, 0, 0);
+            UpdateTableResults(_table4Results, results4, 0, 0, 0);
+            UpdateTableResults(_table5Results, results5, 0, 0, 0);
+            UpdateTableResults(_table6Results, results6, 0, 0, 0);
+            UpdateTableResults(_table7Results, results7, 0, 0, 0);
+            UpdateTableResults(_table8Results, results8, 0, 0, 0);
 
             LastUpdateTime = DateTime.Now;
 
@@ -741,6 +836,8 @@ namespace MQReceiver.ViewModels
             OnPropertyChanged(nameof(Table4Count));
             OnPropertyChanged(nameof(Table5Count));
             OnPropertyChanged(nameof(Table6Count));
+            OnPropertyChanged(nameof(Table7Count));
+            OnPropertyChanged(nameof(Table8Count));
         }
 
         private void UpdateTableResults(
@@ -774,13 +871,39 @@ namespace MQReceiver.ViewModels
             {
                 StockCode = result.StockCode,
                 StockName = result.StockName ?? result.StockCode,
+                PriceChangePercent = result.PriceChangePercent,
                 WeeklyK = result.WeeklyK,
                 MonthlyK = result.MonthlyK,
                 QuarterlyK = result.QuarterlyK,
                 WeeklyKColor = GetKValueColor(result.WeeklyK, result.YesterdayWeeklyK),
                 MonthlyKColor = GetKValueColor(result.MonthlyK, result.YesterdayMonthlyK),
-                QuarterlyKColor = GetKValueColor(result.QuarterlyK, result.YesterdayQuarterlyK)
+                QuarterlyKColor = GetKValueColor(result.QuarterlyK, result.YesterdayQuarterlyK),
+                PriceChangeColor = GetPriceChangeColor(result.PriceChangePercent)
             };
+        }
+
+        /// <summary>
+        /// 获取涨幅颜色（红涨绿跌）
+        /// </summary>
+        private Brush GetPriceChangeColor(decimal? priceChangePercent)
+        {
+            if (!priceChangePercent.HasValue)
+            {
+                return new SolidColorBrush(Color.FromRgb(110, 110, 110)); // 无数据，显示灰色
+            }
+
+            if (priceChangePercent.Value > 0)
+            {
+                return new SolidColorBrush(Color.FromRgb(255, 107, 107)); // 上涨，显示红色
+            }
+            else if (priceChangePercent.Value < 0)
+            {
+                return new SolidColorBrush(Color.FromRgb(78, 205, 196)); // 下跌，显示绿色
+            }
+            else
+            {
+                return new SolidColorBrush(Color.FromRgb(110, 110, 110)); // 平盘，显示灰色
+            }
         }
 
         /// <summary>
@@ -826,6 +949,8 @@ namespace MQReceiver.ViewModels
             _table4Results?.Clear();
             _table5Results?.Clear();
             _table6Results?.Clear();
+            _table7Results?.Clear();
+            _table8Results?.Clear();
 
             // 清理原始结果引用
             _originalTable1Results = null;
@@ -834,6 +959,8 @@ namespace MQReceiver.ViewModels
             _originalTable4Results = null;
             _originalTable5Results = null;
             _originalTable6Results = null;
+            _originalTable7Results = null;
+            _originalTable8Results = null;
 
             // 清理事件订阅
             PropertyChanged = null;
@@ -847,11 +974,14 @@ namespace MQReceiver.ViewModels
     {
         public string StockCode { get; set; }
         public string StockName { get; set; }
+        public decimal? PriceChangePercent { get; set; }  // 涨幅百分比
         public decimal WeeklyK { get; set; }
         public decimal MonthlyK { get; set; }
         public decimal QuarterlyK { get; set; }
         public Brush WeeklyKColor { get; set; }
         public Brush MonthlyKColor { get; set; }
         public Brush QuarterlyKColor { get; set; }
+        public Brush PriceChangeColor { get; set; }  // 涨幅颜色
+        public string PriceChangeDisplay => PriceChangePercent.HasValue ? $"{PriceChangePercent.Value:F2}%" : "--";  // 涨幅显示文本
     }
 }

@@ -33,14 +33,19 @@ namespace MQReceiver.Services
         private RealTimeDataCache realTimeCache;
         private bool _ownsCache = true;  // 是否拥有缓存的生命周期管理权
         private KDCalculator kdCalculator;
-        private StockFilter stockFilter;  // 保留旧版本用于兼容
-        private StockFilterOrchestrator filterOrchestrator;  // 新的过滤器协调器
+        private StockFilterOrchestrator filterOrchestrator;  // 过滤器协调器（旧版6个过滤器）
+        private UnifiedStockFilter unifiedFilter;  // 新版统一过滤器（8个过滤条件）
         private DataBoundaryManager dataBoundaryManager;  // 数据边界管理器
         private System.Timers.Timer filterTimer;
         private readonly object _timerLock = new object();
         private int intervalMinutes;
         private volatile bool _isRunning = false;
         private volatile bool _disposed = false;
+
+        // 数据变化检测
+        private DateTime _lastCacheUpdateTime = DateTime.MinValue;  // 上次过滤时缓存的更新时间
+        private DateTime? _lastDbDate = null;  // 上次过滤时数据库的最新日期
+        private bool _forceNextFilter = true;  // 强制下次过滤（首次启动时）
 
         /// <summary>
         /// 过滤完成事件 - 订阅者（如UI层）订阅此事件以获取过滤结果
@@ -144,9 +149,10 @@ namespace MQReceiver.Services
                     // 使用依赖注入创建KD计算器（支持实时数据合并）
                     var klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
                     kdCalculator = new KDCalculator(klineRepository, realTimeCache, dataBoundaryManager);
-                    stockFilter = new StockFilter(kdCalculator, realTimeCache);  // 保留旧版本
-                    filterOrchestrator = new StockFilterOrchestrator(kdCalculator, realTimeCache);  // 新版本
+                    filterOrchestrator = new StockFilterOrchestrator(kdCalculator, realTimeCache);
+                    unifiedFilter = new UnifiedStockFilter(kdCalculator, realTimeCache);
                     Console.WriteLine("KD计算器初始化成功（支持实时数据合并）");
+                    Console.WriteLine("新版统一过滤器初始化成功（8个条件）");
                 }
                 catch (Exception ex)
                 {
@@ -350,7 +356,6 @@ namespace MQReceiver.Services
 
                     // 清理其他资源引用
                     kdCalculator = null;
-                    stockFilter = null;
                     filterOrchestrator = null;
                     dataBoundaryManager = null;
 
@@ -399,17 +404,26 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 手动触发一次过滤
+        /// 手动触发一次过滤（强制执行，不检查数据变化）
         /// </summary>
         public void TriggerFilter()
         {
-            Task.Run(() => ExecuteFilter());
+            Task.Run(() => ExecuteFilter(true));  // 手动触发时强制执行
+        }
+
+        /// <summary>
+        /// 执行过滤（带数据变化检测）
+        /// </summary>
+        private void ExecuteFilter()
+        {
+            ExecuteFilter(false);
         }
 
         /// <summary>
         /// 执行过滤
         /// </summary>
-        private void ExecuteFilter()
+        /// <param name="forceExecute">是否强制执行（忽略数据变化检测）</param>
+        private void ExecuteFilter(bool forceExecute)
         {
             try
             {
@@ -419,13 +433,30 @@ namespace MQReceiver.Services
                     return;
                 }
 
+                // 获取当前数据状态
+                var repository = new PostgresStockDataRepository();
+                DateTime? latestDbDate = repository.GetLatestTradeDate();
+                DateTime currentCacheUpdateTime = realTimeCache.LastUpdateTime;
+
+                // 检查是否有新数据
+                bool hasNewData = CheckForNewData(currentCacheUpdateTime, latestDbDate);
+
+                if (!forceExecute && !_forceNextFilter && !hasNewData)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 数据未变化，跳过本次过滤（缓存: {currentCacheUpdateTime:HH:mm:ss}, 数据库: {latestDbDate?.ToString("yyyy-MM-dd") ?? "无"}）");
+                    return;
+                }
+
+                // 重置强制过滤标志
+                _forceNextFilter = false;
+
                 Console.WriteLine();
                 Console.WriteLine("========== 开始执行KD过滤 ==========");
                 Console.WriteLine("时间: {0}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 Console.WriteLine("缓存中的股票数量: {0}", realTimeCache.Count);
                 Console.WriteLine("缓存最后更新时间: {0}",
-                    realTimeCache.LastUpdateTime != DateTime.MinValue
-                        ? realTimeCache.LastUpdateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                    currentCacheUpdateTime != DateTime.MinValue
+                        ? currentCacheUpdateTime.ToString("yyyy-MM-dd HH:mm:ss")
                         : "从未更新");
 
                 if (realTimeCache.Count == 0)
@@ -462,8 +493,6 @@ namespace MQReceiver.Services
                 var stopwatch = Stopwatch.StartNew();
 
                 // 使用数据边界管理器决定目标日期和数据策略
-                var repository = new PostgresStockDataRepository();
-                DateTime? latestDbDate = repository.GetLatestTradeDate();
                 DataStatus dataStatus = dataBoundaryManager.GetCurrentDataStatus(latestDbDate);
                 DateTime targetDate = dataStatus.RecommendedTargetDate;
 
@@ -479,95 +508,19 @@ namespace MQReceiver.Services
                 }
                 Console.WriteLine($"状态描述: {dataStatus.StatusDescription}");
 
-                // ========== 表格一：月K > 季K AND 周K上穿月K ==========
-                Console.WriteLine("【表格一】月K > 季K AND 周K上穿月K");
-                Console.WriteLine("----------------------------------------");
-                var condition1 = FilterConditionBuilder.BuildTable1Condition();
-                var sw1 = Stopwatch.StartNew();
-                var results1 = filterOrchestrator.FilterByTable1Parallel(condition1, targetDate);
-                sw1.Stop();
-                Console.WriteLine("结果数量: {0} 只股票", results1.Count);
-                Console.WriteLine("处理时间: {0:F2} 秒", sw1.Elapsed.TotalSeconds);
-                Console.WriteLine();
+                // 更新上次过滤时的数据状态（在过滤开始时更新，确保即使过滤失败也不会重复执行）
+                _lastCacheUpdateTime = currentCacheUpdateTime;
+                _lastDbDate = latestDbDate;
 
-                // 获取昨天的K值并排序
-                var enrichedResults1 = FilterDisplayHelper.EnrichWithHistory(results1, kdCalculator, targetDate);
-                enrichedResults1 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults1, descending: true);
-
-                // ========== 表格二：月K > 季K AND 周K > 月K（不含上穿当天） ==========
-                Console.WriteLine("【表格二】月K > 季K AND 周K > 月K（不含上穿当天）");
-                Console.WriteLine("----------------------------------------");
-                var condition2 = FilterConditionBuilder.BuildTable2Condition();
-                var sw2 = Stopwatch.StartNew();
-                var results2 = filterOrchestrator.FilterByTable2Parallel(condition2, targetDate);
-                sw2.Stop();
-                Console.WriteLine("结果数量: {0} 只股票", results2.Count);
-                Console.WriteLine("处理时间: {0:F2} 秒", sw2.Elapsed.TotalSeconds);
-                Console.WriteLine();
-
-                // 获取昨天的K值并排序
-                var enrichedResults2 = FilterDisplayHelper.EnrichWithHistory(results2, kdCalculator, targetDate);
-                enrichedResults2 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults2, descending: true);
-
-                // ========== 表格三：月K < 季K AND 周K上穿季K ==========
-                Console.WriteLine("【表格三】月K < 季K AND 周K上穿季K");
-                Console.WriteLine("----------------------------------------");
-                var condition3 = FilterConditionBuilder.BuildTable3Condition();
-                var sw3 = Stopwatch.StartNew();
-                var results3 = filterOrchestrator.FilterByTable3Parallel(condition3, targetDate);
-                sw3.Stop();
-                Console.WriteLine("结果数量: {0} 只股票", results3.Count);
-                Console.WriteLine("处理时间: {0:F2} 秒", sw3.Elapsed.TotalSeconds);
-                Console.WriteLine();
-
-                // 获取昨天的K值并排序
-                var enrichedResults3 = FilterDisplayHelper.EnrichWithHistory(results3, kdCalculator, targetDate);
-                enrichedResults3 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults3, descending: true);
-
-                // ========== 表格四：月K < 季K AND 周K > 季K（不含上穿当天） ==========
-                Console.WriteLine("【表格四】月K < 季K AND 周K > 季K（不含上穿当天）");
-                Console.WriteLine("----------------------------------------");
-                var condition4 = FilterConditionBuilder.BuildTable4Condition();
-                var sw4 = Stopwatch.StartNew();
-                var results4 = filterOrchestrator.FilterByTable4Parallel(condition4, targetDate);
-                sw4.Stop();
-                Console.WriteLine("结果数量: {0} 只股票", results4.Count);
-                Console.WriteLine("处理时间: {0:F2} 秒", sw4.Elapsed.TotalSeconds);
-                Console.WriteLine();
-
-                // 获取昨天的K值并排序
-                var enrichedResults4 = FilterDisplayHelper.EnrichWithHistory(results4, kdCalculator, targetDate);
-                enrichedResults4 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults4, descending: true);
-
-                // ========== 表格五：月K > 季K AND 周K < 月K ==========
-                Console.WriteLine("【表格五】月K > 季K AND 周K < 月K");
-                Console.WriteLine("----------------------------------------");
-                var condition5 = FilterConditionBuilder.BuildTable5Condition();
-                var sw5 = Stopwatch.StartNew();
-                var results5 = filterOrchestrator.FilterByTable5Parallel(condition5, targetDate);
-                sw5.Stop();
-                Console.WriteLine("结果数量: {0} 只股票", results5.Count);
-                Console.WriteLine("处理时间: {0:F2} 秒", sw5.Elapsed.TotalSeconds);
-                Console.WriteLine();
-
-                // 获取昨天的K值并排序
-                var enrichedResults5 = FilterDisplayHelper.EnrichWithHistory(results5, kdCalculator, targetDate);
-                enrichedResults5 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults5, descending: true);
-
-                // ========== 表格六：月K < 季K AND 周K < 季K ==========
-                Console.WriteLine("【表格六】月K < 季K AND 周K < 季K");
-                Console.WriteLine("----------------------------------------");
-                var condition6 = FilterConditionBuilder.BuildTable6Condition();
-                var sw6 = Stopwatch.StartNew();
-                var results6 = filterOrchestrator.FilterByTable6Parallel(condition6, targetDate);
-                sw6.Stop();
-                Console.WriteLine("结果数量: {0} 只股票", results6.Count);
-                Console.WriteLine("处理时间: {0:F2} 秒", sw6.Elapsed.TotalSeconds);
-                Console.WriteLine();
-
-                // 获取昨天的K值并排序
-                var enrichedResults6 = FilterDisplayHelper.EnrichWithHistory(results6, kdCalculator, targetDate);
-                enrichedResults6 = FilterDisplayHelper.SortByQuarterlyK(enrichedResults6, descending: true);
+                // ========== 执行8个新的过滤条件 ==========
+                var enrichedResults1 = ExecuteNewFilter(1, "强多金叉", targetDate);
+                var enrichedResults2 = ExecuteNewFilter(2, "中多金叉", targetDate);
+                var enrichedResults3 = ExecuteNewFilter(3, "强多排列", targetDate);
+                var enrichedResults4 = ExecuteNewFilter(4, "中多排列", targetDate);
+                var enrichedResults5 = ExecuteNewFilter(5, "强多缠绕", targetDate);
+                var enrichedResults6 = ExecuteNewFilter(6, "中多缠绕", targetDate);
+                var enrichedResults7 = ExecuteNewFilter(7, "强多反弹", targetDate);
+                var enrichedResults8 = ExecuteNewFilter(8, "中多反弹", targetDate);
 
                 stopwatch.Stop();
 
@@ -580,6 +533,8 @@ namespace MQReceiver.Services
                     Table4Results = enrichedResults4,
                     Table5Results = enrichedResults5,
                     Table6Results = enrichedResults6,
+                    Table7Results = enrichedResults7,
+                    Table8Results = enrichedResults8,
                     FilterTime = DateTime.Now,
                     ElapsedSeconds = stopwatch.Elapsed.TotalSeconds,
                     ProcessedCount = realTimeCache.Count
@@ -607,11 +562,56 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
+        /// 执行单个新过滤条件
+        /// </summary>
+        private List<FilterResultWithHistory> ExecuteNewFilter(int filterId, string filterName, DateTime targetDate)
+        {
+            Console.WriteLine($"【{filterName}】（过滤器{filterId}）");
+            Console.WriteLine("----------------------------------------");
+            var condition = new NewFilterCondition(filterId);
+            var sw = Stopwatch.StartNew();
+            var results = unifiedFilter.FilterParallel(condition, targetDate);
+            sw.Stop();
+            Console.WriteLine("结果数量: {0} 只股票", results.Count);
+            Console.WriteLine("处理时间: {0:F2} 秒", sw.Elapsed.TotalSeconds);
+            Console.WriteLine();
+            return results;
+        }
+
+        /// <summary>
         /// 触发过滤完成事件
         /// </summary>
         protected virtual void OnFilterCompleted(FilterResultEventArgs e)
         {
             FilterCompleted?.Invoke(this, e);
+        }
+
+        /// <summary>
+        /// 检查是否有新数据需要重新计算
+        /// </summary>
+        /// <param name="currentCacheTime">当前缓存更新时间</param>
+        /// <param name="currentDbDate">当前数据库最新日期</param>
+        /// <returns>是否有新数据</returns>
+        private bool CheckForNewData(DateTime currentCacheTime, DateTime? currentDbDate)
+        {
+            // 检查实时缓存是否有更新
+            bool cacheUpdated = currentCacheTime != DateTime.MinValue && currentCacheTime > _lastCacheUpdateTime;
+
+            // 检查数据库是否有新数据
+            bool dbUpdated = false;
+            if (currentDbDate.HasValue)
+            {
+                if (!_lastDbDate.HasValue)
+                {
+                    dbUpdated = true;  // 之前没有数据库日期，现在有了
+                }
+                else if (currentDbDate.Value > _lastDbDate.Value)
+                {
+                    dbUpdated = true;  // 数据库有新的交易日数据
+                }
+            }
+
+            return cacheUpdated || dbUpdated;
         }
 
         /// <summary>
