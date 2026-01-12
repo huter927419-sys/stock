@@ -354,21 +354,31 @@
             }
         }
 
+        // 将time对象转换为字符串key（用于Map匹配）
+        function timeToKey(time) {
+            if (typeof time === 'object' && time.year) {
+                return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
+            }
+            return String(time);
+        }
+
         // 计算K-D差值用于带状图
         function calculateKDDiff(kData, dData) {
             if (!kData || !dData || kData.length === 0 || dData.length === 0) {
+                console.log(`calculateKDDiff: kData.length=${kData.length}, dData.length=${dData.length}`);
                 return [];
             }
 
-            // 创建D值的映射
+            // 创建D值的映射（使用字符串key）
             const dMap = new Map();
             dData.forEach(d => {
-                dMap.set(d.time, d.value);
+                dMap.set(timeToKey(d.time), d.value);
             });
 
             // 计算K-D差值
-            return kData.map(k => {
-                const dValue = dMap.get(k.time);
+            const result = kData.map(k => {
+                const key = timeToKey(k.time);
+                const dValue = dMap.get(key);
                 if (dValue !== undefined) {
                     return {
                         time: k.time,
@@ -377,22 +387,40 @@
                 }
                 return null;
             }).filter(x => x !== null);
+
+            console.log(`calculateKDDiff result: ${result.length} points`);
+            if (result.length > 0) {
+                console.log(`  First: time=${timeToKey(result[0].time)}, value=${result[0].value.toFixed(2)}`);
+                console.log(`  Last: time=${timeToKey(result[result.length-1].time)}, value=${result[result.length-1].value.toFixed(2)}`);
+            }
+            return result;
         }
 
         // 设置KD带状图数据
         function setKDBandData(weeklyK, weeklyD, monthlyK, monthlyD, quarterlyK, quarterlyD) {
+            console.log('setKDBandData called:');
+            console.log(`  weeklyK: ${weeklyK?.length || 0}, weeklyD: ${weeklyD?.length || 0}`);
+            console.log(`  monthlyK: ${monthlyK?.length || 0}, monthlyD: ${monthlyD?.length || 0}`);
+            console.log(`  quarterlyK: ${quarterlyK?.length || 0}, quarterlyD: ${quarterlyD?.length || 0}`);
+
             // 计算各周期的K-D差值
+            console.log('Calculating weekly K-D diff...');
             const weeklyDiff = calculateKDDiff(weeklyK, weeklyD);
+            console.log('Calculating monthly K-D diff...');
             const monthlyDiff = calculateKDDiff(monthlyK, monthlyD);
+            console.log('Calculating quarterly K-D diff...');
             const quarterlyDiff = calculateKDDiff(quarterlyK, quarterlyD);
 
             if (weeklyBandSeries && weeklyDiff.length > 0) {
+                console.log(`Setting weeklyBandSeries with ${weeklyDiff.length} points`);
                 weeklyBandSeries.setData(weeklyDiff);
             }
             if (monthlyBandSeries && monthlyDiff.length > 0) {
+                console.log(`Setting monthlyBandSeries with ${monthlyDiff.length} points`);
                 monthlyBandSeries.setData(monthlyDiff);
             }
             if (quarterlyBandSeries && quarterlyDiff.length > 0) {
+                console.log(`Setting quarterlyBandSeries with ${quarterlyDiff.length} points`);
                 quarterlyBandSeries.setData(quarterlyDiff);
             }
         }

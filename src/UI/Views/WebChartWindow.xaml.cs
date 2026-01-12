@@ -159,6 +159,21 @@ namespace MQReceiver.Views
         {
             // KD数据现在已经与日K线完全对齐（每个交易日都有对应的KD值）
             // 直接转换即可，不需要额外映射
+
+            // 调试：输出KD数据量
+            Console.WriteLine($"[WebChart调试] 股票: {data.StockCode}");
+            Console.WriteLine($"  日K线数据量: {data.DailyKline?.Count ?? 0}");
+            Console.WriteLine($"  周KD数据量: {data.WeeklyKD?.Count ?? 0}");
+            Console.WriteLine($"  月KD数据量: {data.MonthlyKD?.Count ?? 0}");
+            Console.WriteLine($"  季KD数据量: {data.QuarterlyKD?.Count ?? 0}");
+
+            // 输出前几条KD数据样例
+            if (data.WeeklyKD?.Count > 0)
+            {
+                var sample = data.WeeklyKD[data.WeeklyKD.Count - 1];
+                Console.WriteLine($"  周KD最后一条: Date={sample.Date:yyyy-MM-dd}, K={sample.K:F2}, D={sample.D:F2}");
+            }
+
             var chartData = new
             {
                 stockName = data.StockName,

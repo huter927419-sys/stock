@@ -10,6 +10,35 @@ namespace MQReceiver.Helpers
     public static class StockDataParser
     {
         /// <summary>
+        /// 验证股票代码是否为有效的A股代码
+        /// 排除指数、B股、北交所等
+        /// </summary>
+        public static bool IsValidStockCode(string stockCode)
+        {
+            if (string.IsNullOrEmpty(stockCode) || stockCode.Length != 6)
+                return false;
+
+            // 上海A股：600xxx, 601xxx, 603xxx, 605xxx
+            if (stockCode.StartsWith("60"))
+                return true;
+
+            // 深圳A股：000xxx, 001xxx, 002xxx, 003xxx
+            if (stockCode.StartsWith("00") || stockCode.StartsWith("001") ||
+                stockCode.StartsWith("002") || stockCode.StartsWith("003"))
+                return true;
+
+            // 创业板：300xxx, 301xxx
+            if (stockCode.StartsWith("30"))
+                return true;
+
+            // 科创板：688xxx, 689xxx
+            if (stockCode.StartsWith("68"))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
         /// 解析日线数据JSON
         /// </summary>
         public static List<DailyDataRecord> ParseDailyData(string json)

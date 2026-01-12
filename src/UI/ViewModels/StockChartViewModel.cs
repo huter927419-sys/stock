@@ -38,6 +38,9 @@ namespace MQReceiver.ViewModels
         public SeriesCollection MonthlyKDSeries { get; set; }
         public SeriesCollection QuarterlyKDSeries { get; set; }
 
+        // KD带状图叠加系列
+        public SeriesCollection KDBandSeries { get; set; }
+
         // K线图价格范围（用于紧凑显示）
         public double KlinePriceMin { get; set; }
         public double KlinePriceMax { get; set; }
@@ -56,6 +59,7 @@ namespace MQReceiver.ViewModels
         {
             InitializeKlineChart();
             InitializeKDCharts();
+            InitializeKDBandChart();
         }
 
         /// <summary>
@@ -287,6 +291,132 @@ namespace MQReceiver.ViewModels
         }
 
         /// <summary>
+        /// 初始化KD带状图叠加图
+        /// 层级顺序：蓝色(季)在下，绿色(月)在中，红色(周)在上
+        /// K>D使用深色，K<D使用浅色
+        /// </summary>
+        private void InitializeKDBandChart()
+        {
+            var bandSeries = new SeriesCollection();
+
+            // 构建日期到索引的映射
+            var dateToIndex = new Dictionary<DateTime, int>();
+            if (_chartData.DailyKline != null)
+            {
+                for (int i = 0; i < _chartData.DailyKline.Count; i++)
+                {
+                    var date = _chartData.DailyKline[i].Date.Date;
+                    if (!dateToIndex.ContainsKey(date))
+                    {
+                        dateToIndex[date] = i;
+                    }
+                }
+            }
+
+            int totalPoints = _chartData.DailyKline?.Count ?? 0;
+
+            // 添加顺序：先添加的在底层
+            // 1. 季KD（蓝色）- 底层
+            if (_chartData.QuarterlyKD != null && _chartData.QuarterlyKD.Count > 0)
+            {
+                AddKDBandSeries(bandSeries, _chartData.QuarterlyKD, "季",
+                    Color.FromRgb(0, 80, 180),      // 深蓝色 K>D
+                    Color.FromRgb(135, 180, 230),   // 浅蓝色 K<D
+                    dateToIndex, totalPoints);
+            }
+
+            // 2. 月KD（绿色）- 中层
+            if (_chartData.MonthlyKD != null && _chartData.MonthlyKD.Count > 0)
+            {
+                AddKDBandSeries(bandSeries, _chartData.MonthlyKD, "月",
+                    Color.FromRgb(0, 128, 0),       // 深绿色 K>D
+                    Color.FromRgb(144, 238, 144),   // 浅绿色 K<D
+                    dateToIndex, totalPoints);
+            }
+
+            // 3. 周KD（红色）- 顶层
+            if (_chartData.WeeklyKD != null && _chartData.WeeklyKD.Count > 0)
+            {
+                AddKDBandSeries(bandSeries, _chartData.WeeklyKD, "周",
+                    Color.FromRgb(200, 0, 0),       // 大红色 K>D
+                    Color.FromRgb(255, 182, 193),   // 粉红色 K<D
+                    dateToIndex, totalPoints);
+            }
+
+            KDBandSeries = bandSeries;
+        }
+
+        /// <summary>
+        /// 添加KD带状填充系列
+        /// 使用上下两条线实现K和D之间的带状填充效果
+        /// </summary>
+        private void AddKDBandSeries(SeriesCollection targetCollection, List<KDDataPoint> kdData,
+            string period, Color colorKGreaterD, Color colorKLessD,
+            Dictionary<DateTime, int> dateToIndex, int totalPoints)
+        {
+            if (kdData == null || kdData.Count == 0)
+                return;
+
+            var sortedKD = kdData.OrderBy(kd => kd.Date).ToList();
+
+            // 准备数据点，按日期索引排列
+            var alignedData = new List<(int Index, double K, double D)>();
+
+            foreach (var kd in sortedKD)
+            {
+                int index = FindClosestDateIndex(kd.Date, dateToIndex, totalPoints);
+                if (index >= 0)
+                {
+                    alignedData.Add((index, kd.K, kd.D));
+                }
+            }
+
+            if (alignedData.Count < 2)
+                return;
+
+            // 按索引排序确保顺序正确
+            alignedData = alignedData.OrderBy(d => d.Index).ToList();
+
+            // 绘制上边界（max(K,D)）并填充颜色
+            var upperLine = new ChartValues<ObservablePoint>();
+            var lowerLine = new ChartValues<ObservablePoint>();
+
+            foreach (var point in alignedData)
+            {
+                upperLine.Add(new ObservablePoint(point.Index, Math.Max(point.K, point.D)));
+                lowerLine.Add(new ObservablePoint(point.Index, Math.Min(point.K, point.D)));
+            }
+
+            // 判断当前主要是K>D还是K<D，选择对应颜色
+            int kGreaterCount = alignedData.Count(p => p.K >= p.D);
+            var mainColor = kGreaterCount > alignedData.Count / 2 ? colorKGreaterD : colorKLessD;
+
+            // 绘制上边界线并填充到Y=0
+            targetCollection.Add(new LineSeries
+            {
+                Title = $"{period}上",
+                Values = upperLine,
+                Stroke = new SolidColorBrush(mainColor),
+                Fill = new SolidColorBrush(Color.FromArgb(140, mainColor.R, mainColor.G, mainColor.B)),
+                PointGeometry = null,
+                StrokeThickness = 1.5,
+                LineSmoothness = 0
+            });
+
+            // 绘制下边界线，用背景色填充到Y=0，覆盖掉下方不需要的部分
+            targetCollection.Add(new LineSeries
+            {
+                Title = $"{period}下",
+                Values = lowerLine,
+                Stroke = new SolidColorBrush(Color.FromArgb(180, mainColor.R, mainColor.G, mainColor.B)),
+                Fill = new SolidColorBrush(Color.FromRgb(26, 26, 26)), // 背景色 #1A1A1A
+                PointGeometry = null,
+                StrokeThickness = 1,
+                LineSmoothness = 0
+            });
+        }
+
+        /// <summary>
         /// 查找最接近的日期索引
         /// </summary>
         private int FindClosestDateIndex(DateTime targetDate, Dictionary<DateTime, int> dateToIndex, int totalPoints)
@@ -332,6 +462,7 @@ namespace MQReceiver.ViewModels
             ClearSeriesCollection(WeeklyKDSeries);
             ClearSeriesCollection(MonthlyKDSeries);
             ClearSeriesCollection(QuarterlyKDSeries);
+            ClearSeriesCollection(KDBandSeries);
 
             CombinedSeries = null;
             KlineSeries = null;
@@ -339,6 +470,7 @@ namespace MQReceiver.ViewModels
             WeeklyKDSeries = null;
             MonthlyKDSeries = null;
             QuarterlyKDSeries = null;
+            KDBandSeries = null;
 
             KlineLabels = null;
             KDLabels = null;

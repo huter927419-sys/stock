@@ -50,12 +50,21 @@ namespace MQReceiver.Views
         {
             try
             {
+                // 打印数据库诊断信息
+                var repository = new Repositories.PostgresStockDataRepository();
+                repository.PrintDataDiagnostics();
+
+                // 先从日线数据同步股票代码到stock_info表
+                Console.WriteLine("[FilterMainWindow] 正在同步股票代码...");
+                int syncCount = StockInfoCache.Instance.SyncFromDailyData();
+                if (syncCount > 0)
+                {
+                    Console.WriteLine($"[FilterMainWindow] 同步了 {syncCount} 条股票记录");
+                }
+
                 // 修复数据库中的股票信息（包括更新已知股票名称）
                 StockInfoCache.Instance.FixStockInfoData();
                 Console.WriteLine($"[FilterMainWindow] 股票信息缓存已加载: {StockInfoCache.Instance.Count} 条记录");
-
-                // 运行诊断（查看名称加载情况）
-                StockInfoCache.Instance.DiagnoseStockNames();
             }
             catch (Exception ex)
             {

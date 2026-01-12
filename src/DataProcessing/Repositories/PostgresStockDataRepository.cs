@@ -710,5 +710,129 @@ namespace MQReceiver.Repositories
         }
 
         #endregion
+
+        #region 数据诊断方法
+
+        /// <summary>
+        /// 打印数据库数据诊断信息
+        /// </summary>
+        public void PrintDataDiagnostics()
+        {
+            Console.WriteLine("\n========== 数据库诊断报告 ==========\n");
+
+            try
+            {
+                using (var conn = new NpgsqlConnection(_connectionString))
+                {
+                    conn.Open();
+
+                    // 1. 各表数据量
+                    Console.WriteLine("【表数据量统计】");
+                    PrintTableCount(conn, "stock_info", "股票信息表");
+                    PrintTableCount(conn, "stock_daily_data", "日线数据表");
+                    PrintTableCount(conn, "stock_realtime_data", "实时数据表");
+                    PrintTableCount(conn, "stock_exrights_data", "除权数据表");
+
+                    // 2. 日线数据日期范围
+                    Console.WriteLine("\n【日线数据日期范围】");
+                    using (var cmd = new NpgsqlCommand(
+                        "SELECT MIN(trade_date), MAX(trade_date) FROM stock_daily_data", conn))
+                    {
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read() && !reader.IsDBNull(0))
+                            {
+                                Console.WriteLine($"  最早日期: {reader.GetDateTime(0):yyyy-MM-dd}");
+                                Console.WriteLine($"  最新日期: {reader.GetDateTime(1):yyyy-MM-dd}");
+                            }
+                            else
+                            {
+                                Console.WriteLine("  无数据");
+                            }
+                        }
+                    }
+
+                    // 3. 最近10个交易日数据量
+                    Console.WriteLine("\n【最近10个交易日数据量】");
+                    using (var cmd = new NpgsqlCommand(@"
+                        SELECT trade_date, COUNT(DISTINCT stock_code) as stock_count
+                        FROM stock_daily_data
+                        WHERE trade_date >= CURRENT_DATE - INTERVAL '20 days'
+                        GROUP BY trade_date
+                        ORDER BY trade_date DESC
+                        LIMIT 10", conn))
+                    {
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                Console.WriteLine($"  {reader.GetDateTime(0):yyyy-MM-dd}: {reader.GetInt64(1)} 只股票");
+                            }
+                        }
+                    }
+
+                    // 4. 股票名称统计
+                    Console.WriteLine("\n【股票名称统计】");
+                    using (var cmd = new NpgsqlCommand(@"
+                        SELECT
+                            COUNT(*) as total,
+                            SUM(CASE WHEN stock_name = stock_code OR stock_name IS NULL OR stock_name = '' THEN 1 ELSE 0 END) as missing,
+                            SUM(CASE WHEN stock_name <> stock_code AND stock_name IS NOT NULL AND stock_name <> '' THEN 1 ELSE 0 END) as has_name
+                        FROM stock_info", conn))
+                    {
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                Console.WriteLine($"  总数: {reader.GetInt64(0)}");
+                                Console.WriteLine($"  缺失名称: {reader.GetInt64(1)}");
+                                Console.WriteLine($"  有名称: {reader.GetInt64(2)}");
+                            }
+                        }
+                    }
+
+                    // 5. 抽样股票数据
+                    Console.WriteLine("\n【抽样股票最近数据】");
+                    string[] sampleStocks = { "000001", "600000", "300001" };
+                    foreach (var code in sampleStocks)
+                    {
+                        Console.WriteLine($"\n  --- {code} ---");
+                        using (var cmd = new NpgsqlCommand($@"
+                            SELECT trade_date, open_price, high_price, low_price, close_price, volume
+                            FROM stock_daily_data
+                            WHERE stock_code = @code
+                            ORDER BY trade_date DESC
+                            LIMIT 3", conn))
+                        {
+                            cmd.Parameters.AddWithValue("@code", code);
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    Console.WriteLine($"  {reader.GetDateTime(0):yyyy-MM-dd} O:{reader.GetDecimal(1):F2} H:{reader.GetDecimal(2):F2} L:{reader.GetDecimal(3):F2} C:{reader.GetDecimal(4):F2} V:{reader.GetDecimal(5):F0}");
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Console.WriteLine("\n========== 诊断完成 ==========\n");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"诊断失败: {ex.Message}");
+            }
+        }
+
+        private void PrintTableCount(NpgsqlConnection conn, string table, string name)
+        {
+            using (var cmd = new NpgsqlCommand($"SELECT COUNT(*) FROM {table}", conn))
+            {
+                var count = cmd.ExecuteScalar();
+                Console.WriteLine($"  {name}: {count}");
+            }
+        }
+
+        #endregion
     }
 }
