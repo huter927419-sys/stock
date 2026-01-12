@@ -65,6 +65,10 @@ namespace MQReceiver.Views
                 // 修复数据库中的股票信息（包括更新已知股票名称）
                 StockInfoCache.Instance.FixStockInfoData();
                 Console.WriteLine($"[FilterMainWindow] 股票信息缓存已加载: {StockInfoCache.Instance.Count} 条记录");
+
+                // 诊断问题股票代码
+                string[] problemCodes = { "000891", "000022", "000101", "000071", "000033", "000854", "000141", "000119", "000112", "000132", "000117", "000057", "000982", "000133", "000135", "000106", "000145", "000105", "000094", "000092", "000853", "000160", "000073", "000122", "000116", "000130", "000152", "000125", "000113" };
+                StockInfoCache.Instance.DiagnoseStockCodes(problemCodes);
             }
             catch (Exception ex)
             {
