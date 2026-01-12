@@ -41,21 +41,22 @@ namespace MQReceiver.Filters
         }
 
         /// <summary>
-        /// 检查是否不是今天上穿的（昨天周K > 月K）
+        /// 检查是否不是今天上穿的（前一交易日周K > 月K）
         /// </summary>
         private bool CheckNotCrossToday(string stockCode, DateTime targetDate)
         {
             try
             {
-                // 获取昨天的周KD和月KD
-                var yesterdayWeeklyKD = _kdCalculator.CalculateWeeklyKD(stockCode, targetDate.AddDays(-1));
-                var yesterdayMonthlyKD = _kdCalculator.CalculateMonthlyKD(stockCode, targetDate.AddDays(-1));
+                // 获取前一个交易日的周KD和月KD（跳过周末）
+                DateTime previousTradingDay = GetPreviousTradingDay(targetDate);
+                var previousWeeklyKD = _kdCalculator.CalculateWeeklyKD(stockCode, previousTradingDay);
+                var previousMonthlyKD = _kdCalculator.CalculateMonthlyKD(stockCode, previousTradingDay);
 
-                if (yesterdayWeeklyKD == null || yesterdayMonthlyKD == null)
+                if (previousWeeklyKD == null || previousMonthlyKD == null)
                     return false;
 
-                // 不含上穿当天：昨天周K > 月K
-                return yesterdayWeeklyKD.K > yesterdayMonthlyKD.K;
+                // 不含上穿当天：前一交易日周K > 月K
+                return previousWeeklyKD.K > previousMonthlyKD.K;
             }
             catch (Exception)
             {

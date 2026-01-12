@@ -29,6 +29,23 @@ namespace MQReceiver.Filters
         }
 
         /// <summary>
+        /// 获取前一个交易日
+        /// 跳过周末（周六、周日），返回实际的交易日
+        /// </summary>
+        protected DateTime GetPreviousTradingDay(DateTime date)
+        {
+            DateTime previousDay = date.AddDays(-1);
+
+            // 跳过周末
+            while (previousDay.DayOfWeek == DayOfWeek.Saturday || previousDay.DayOfWeek == DayOfWeek.Sunday)
+            {
+                previousDay = previousDay.AddDays(-1);
+            }
+
+            return previousDay;
+        }
+
+        /// <summary>
         /// 执行过滤（串行版本）
         /// </summary>
         public List<SimpleFilterResult> Filter(TCondition condition, DateTime targetDate)

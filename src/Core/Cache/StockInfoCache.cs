@@ -104,16 +104,7 @@ namespace MQReceiver.Cache
             if (string.IsNullOrEmpty(stockCode))
                 return stockCode;
 
-            if (_stockNameCache.TryGetValue(stockCode, out string name))
-            {
-                // 如果缓存的名称就是代码本身，说明没有真正的名称，尝试从内置字典查找
-                if (name != stockCode)
-                {
-                    return name;
-                }
-            }
-
-            // 从内置字典查找（优先级最高）
+            // 首先检查内置字典（优先级最高，确保ST股票等特殊名称正确）
             string builtinName = GetBuiltinStockName(stockCode);
             if (!string.IsNullOrEmpty(builtinName))
             {
@@ -121,8 +112,17 @@ namespace MQReceiver.Cache
                 return builtinName;
             }
 
-            // 如果缓存中有值（即使等于代码），返回它
-            if (!string.IsNullOrEmpty(name))
+            if (_stockNameCache.TryGetValue(stockCode, out string name))
+            {
+                // 如果缓存的名称不是代码本身，且不是不完整的ST名称，返回缓存值
+                if (name != stockCode && !IsIncompleteName(name))
+                {
+                    return name;
+                }
+            }
+
+            // 如果缓存中有值（即使不完整），但内置字典没有，返回缓存值
+            if (!string.IsNullOrEmpty(name) && name != stockCode)
             {
                 return name;
             }
@@ -139,12 +139,31 @@ namespace MQReceiver.Cache
         }
 
         /// <summary>
+        /// 检查名称是否不完整（如截断的ST名称）
+        /// </summary>
+        private bool IsIncompleteName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return true;
+
+            // 检查是否是不完整的ST名称（如"S*ST"、"*ST"、"ST"、"*ST步"等）
+            // 完整的ST名称应该至少有ST前缀+2个汉字
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^[S\*]*ST.?$"))
+            {
+                return true; // 只有前缀或前缀+1个字，视为不完整
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// 从内置字典获取股票名称
         /// </summary>
         private string GetBuiltinStockName(string stockCode)
         {
             var builtinNames = new Dictionary<string, string>
             {
+                // 普通股票
                 {"000022", "深赤湾A"}, {"000033", "同花顺"}, {"000057", "厦门象屿"}, {"000071", "凤凰光学"},
                 {"000073", "光明肉业"}, {"000092", "惠天热电"}, {"000094", "大名城"}, {"000101", "明星电力"},
                 {"000105", "永鼎股份"}, {"000106", "重庆路桥"}, {"000112", "浙江东日"}, {"000113", "浙江东方"},
@@ -152,7 +171,28 @@ namespace MQReceiver.Cache
                 {"000125", "铁龙物流"}, {"000130", "波导股份"}, {"000132", "重庆啤酒"}, {"000133", "东湖高新"},
                 {"000135", "乐凯胶片"}, {"000141", "中国宝安"}, {"000145", "廊坊发展"}, {"000152", "维科技术"},
                 {"000160", "巨化股份"}, {"000853", "冀东装备"}, {"000854", "春兰股份"}, {"000891", "阳光城"},
-                {"000982", "宁波能源"}
+                {"000982", "宁波能源"},
+                // ST股票（注意：ST股票名称可能会变化，以实时数据为准）
+                {"000693", "*ST华泽"}, {"000699", "S*ST佳唐"}, {"000564", "ST供销大集"}, {"000498", "*ST莲花"},
+                {"000662", "*ST天夏"}, {"000673", "*ST当代"}, {"000760", "*ST斯太"}, {"000816", "*ST慧业"},
+                {"000981", "*ST银亿"}, {"001270", "*ST铖昌"}, {"002029", "七匹狼"}, {"002070", "*ST众和"},
+                {"002113", "*ST天润"}, {"002220", "*ST天宝"}, {"002427", "*ST尤夫"}, {"002450", "*ST康得"},
+                {"002569", "*ST步森"}, {"002647", "*ST仁东"}, {"600086", "*ST龙力"}, {"600145", "*ST新亿"},
+                {"600155", "*ST宝硕"}, {"600175", "*ST祥源"}, {"600185", "*ST华讯"}, {"600196", "*ST复星"},
+                {"600217", "*ST秦岭"}, {"600220", "*ST南药"}, {"600242", "*ST中昌"}, {"600275", "*ST昌鱼"},
+                {"600289", "*ST信通"}, {"600291", "*ST西水"}, {"600320", "*ST薇创"}, {"600385", "*ST金泰"},
+                {"600396", "*ST金山"}, {"600421", "*ST仰帆"}, {"600462", "*ST九有"}, {"600481", "*ST双良"},
+                {"600499", "*ST科林"}, {"600518", "*ST康美"}, {"600556", "*ST天下秀"}, {"600568", "*ST中珠"},
+                {"600576", "*ST祥龙"}, {"600577", "*ST精伦"}, {"600595", "*ST中孚"}, {"600604", "*ST市北"},
+                {"600614", "*ST鹏起"}, {"600634", "*ST富控"}, {"600652", "*ST游久"}, {"600654", "*ST中安"},
+                {"600656", "*ST退市博元"}, {"600666", "*ST瑞德"}, {"600677", "*ST航通"}, {"600696", "*ST岩石"},
+                {"600698", "*ST湖南天雁"}, {"600701", "*ST工新"}, {"600708", "*ST海越"}, {"600726", "*ST华源"},
+                {"600747", "*ST大控"}, {"600769", "*ST祥龙"}, {"600793", "*ST宜宾纸业"}, {"600796", "*ST钱江"},
+                {"600817", "*ST宏盛"}, {"600870", "*ST厦华"}, {"600891", "*ST秋林"}, {"600978", "*ST宜华"},
+                {"601558", "*ST华锐"}, {"603813", "*ST原尚"}, {"603828", "ST柯利达"},
+                // 补充的股票
+                {"000129", "泰山石油"}, {"000908", "*ST景峰"}, {"002289", "*ST宇顺"}, {"002586", "ST围海"},
+                {"603843", "*ST正邦"}
             };
 
             return builtinNames.TryGetValue(stockCode, out string name) ? name : null;
@@ -452,24 +492,30 @@ namespace MQReceiver.Cache
 
         /// <summary>
         /// 智能提取股票简称
-        /// 从长公司名称中提取4字简称
+        /// 从长公司名称中提取简称
         /// 如："浙江世宝股份有限" -> "世宝股份"
+        /// 注意：ST类股票保留完整前缀（ST/S*ST/*ST等）+ 简称
         /// </summary>
         private void TruncateLongNames(NpgsqlConnection conn)
         {
             try
             {
                 // 智能提取简称：去掉省市前缀和公司后缀
+                // ST类股票特殊处理：保留ST前缀 + 后面的简称（最多6字符总长度）
                 using (var cmd = new NpgsqlCommand(@"
                     UPDATE stock_info
                     SET stock_name =
                         CASE
+                            -- ST类股票：保留前缀，截取到合理长度（6-8字符）
+                            WHEN stock_name ~ '^[S\*]*ST' THEN LEFT(stock_name, 8)
+                            -- 普通股票：长度<=4直接保留
                             WHEN LENGTH(stock_name) <= 4 THEN stock_name
+                            -- 普通股票：去掉省市前缀和公司后缀后截取4字符
                             ELSE LEFT(
                                 REGEXP_REPLACE(
                                     REGEXP_REPLACE(
                                         stock_name,
-                                        '^(浙江|江苏|上海|北京|广东|深圳|广州|天津|重庆|福建|山东|河南|河北|湖南|湖北|四川|安徽|陕西|辽宁|吉林|黑龙江|江西|云南|贵州|甘肃|海南|宁夏|青海|西藏|新疆|内蒙古|广西|山西|厦门|青岛|大连|宁波|苏州|无锡|南京|杭州|武汉|成都|西安|长沙|郑州|合肥|南昌|昆明|贵阳|兰州|太原|沈阳|哈尔滨|长春)省?市?',
+                                        '^(浙江|江苏|上海|北京|广东|深圳|广州|天津|重庆|福建|山东|河南|河北|湖南|湖北|四川|安徽|陕西|辽宁|吉林|黑龙江|江西|云南|贵州|甘肃|海南|宁夏|青海|西藏|新疆|内蒙古|广西|山西|厦门|青岛|大连|宁波|苏州|无锁|南京|杭州|武汉|成都|西安|长沙|郑州|合肥|南昌|昆明|贵阳|兰州|太原|沈阳|哈尔滨|长春)省?市?',
                                         ''
                                     ),
                                     '(股份有限公司|有限责任公司|有限公司|股份有限|集团股份|控股股份|科技股份|实业股份|电子股份|医药股份|工业股份|股份).*$',
@@ -480,7 +526,8 @@ namespace MQReceiver.Cache
                         END,
                         update_time = CURRENT_TIMESTAMP
                     WHERE LENGTH(stock_name) > 4
-                      AND stock_name <> stock_code", conn))
+                      AND stock_name <> stock_code
+                      AND stock_name !~ '^[S\*]*ST.{2,4}$'", conn))
                 {
                     int affected = cmd.ExecuteNonQuery();
                     if (affected > 0)

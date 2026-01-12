@@ -48,15 +48,16 @@ namespace MQReceiver.Filters
         {
             try
             {
-                // 获取昨天的周KD和月KD
-                var yesterdayWeeklyKD = _kdCalculator.CalculateWeeklyKD(stockCode, targetDate.AddDays(-1));
-                var yesterdayMonthlyKD = _kdCalculator.CalculateMonthlyKD(stockCode, targetDate.AddDays(-1));
+                // 获取前一个交易日的周KD和月KD（跳过周末）
+                DateTime previousTradingDay = GetPreviousTradingDay(targetDate);
+                var previousWeeklyKD = _kdCalculator.CalculateWeeklyKD(stockCode, previousTradingDay);
+                var previousMonthlyKD = _kdCalculator.CalculateMonthlyKD(stockCode, previousTradingDay);
 
-                if (yesterdayWeeklyKD == null || yesterdayMonthlyKD == null)
+                if (previousWeeklyKD == null || previousMonthlyKD == null)
                     return false;
 
-                // 上穿条件：昨天周K <= 月K，今天周K > 月K
-                return yesterdayWeeklyKD.K <= yesterdayMonthlyKD.K && currentWeeklyKD.K > currentMonthlyKD.K;
+                // 上穿条件：前一交易日周K <= 月K，今天周K > 月K
+                return previousWeeklyKD.K <= previousMonthlyKD.K && currentWeeklyKD.K > currentMonthlyKD.K;
             }
             catch (Exception)
             {
