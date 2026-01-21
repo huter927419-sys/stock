@@ -34,13 +34,17 @@ namespace MQReceiver.Services
         private bool _ownsCache = true;  // 是否拥有缓存的生命周期管理权
         private KDCalculator kdCalculator;
         private StockFilterOrchestrator filterOrchestrator;  // 过滤器协调器（旧版6个过滤器）
-        private UnifiedStockFilter unifiedFilter;  // 新版统一过滤器（8个过滤条件）
+        private UnifiedStockFilter unifiedFilter;  // 新版统一过滤器（6个过滤条件）
         private DataBoundaryManager dataBoundaryManager;  // 数据边界管理器
         private System.Timers.Timer filterTimer;
         private readonly object _timerLock = new object();
         private int intervalMinutes;
         private volatile bool _isRunning = false;
         private volatile bool _disposed = false;
+        
+        // 性能优化：内存缓存和批量计算器
+        private KlineDataMemoryCache _klineMemoryCache;
+        private BatchKDCalculator _batchKDCalculator;
 
         // 数据变化检测
         private DateTime _lastCacheUpdateTime = DateTime.MinValue;  // 上次过滤时缓存的更新时间
@@ -61,6 +65,11 @@ namespace MQReceiver.Services
         /// 服务停止事件
         /// </summary>
         public event EventHandler ServiceStopped;
+        
+        /// <summary>
+        /// 日志消息事件 - 用于将日志输出到UI
+        /// </summary>
+        public event Action<string> LogMessage;
 
         /// <summary>
         /// 获取实时数据缓存（只读访问）
@@ -149,10 +158,21 @@ namespace MQReceiver.Services
                     // 使用依赖注入创建KD计算器（支持实时数据合并）
                     var klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
                     kdCalculator = new KDCalculator(klineRepository, realTimeCache, dataBoundaryManager);
+                    
+                    // 使用真实数据计算KD（不前复权，与图表KD计算保持一致）
+                    kdCalculator.EnableForwardAdjustment = false;
+                    
                     filterOrchestrator = new StockFilterOrchestrator(kdCalculator, realTimeCache);
+                    
+                    // 创建标准统一过滤器（内存缓存将在首次执行过滤时初始化）
                     unifiedFilter = new UnifiedStockFilter(kdCalculator, realTimeCache);
-                    Console.WriteLine("KD计算器初始化成功（支持实时数据合并）");
-                    Console.WriteLine("新版统一过滤器初始化成功（8个条件）");
+                    
+                    // 订阅过滤器的日志事件
+                    unifiedFilter.LogMessage += (msg) => LogMessage?.Invoke(msg);
+                    
+                    Console.WriteLine("KD计算器初始化成功（支持实时数据合并，启用前复权计算）");
+                    Console.WriteLine("新版统一过滤器初始化成功（6个条件：强多排列/中多排列/强多缠绕/中多缠绕/强多反弹/中多反弹）");
+                    LogMessage?.Invoke("KD计算器和过滤器初始化成功");
                 }
                 catch (Exception ex)
                 {
@@ -479,6 +499,42 @@ namespace MQReceiver.Services
                     Console.WriteLine("警告: 实时数据可能已过期（超过1小时未更新）");
                 }
 
+                // 性能优化：首次执行时初始化内存缓存和批量KD计算器
+                // 注意：BatchKDCalculator已修复，使用与ChartService相同的SMA函数和RSV计算逻辑
+                if (_klineMemoryCache == null && _batchKDCalculator == null && realTimeCache.Count > 0)
+                {
+                    try
+                    {
+                        Console.WriteLine("[性能优化] 首次执行，正在初始化内存缓存和批量KD计算器...");
+                        
+                        // 获取所有股票代码
+                        var stockCodes = realTimeCache.GetAllData().Select(d => d.StockCode).ToList();
+                        DateTime initTargetDate = latestDbDate ?? DateTime.Today;
+                        
+                        // 1. 创建内存缓存并预加载数据
+                        _klineMemoryCache = new KlineDataMemoryCache();
+                        _klineMemoryCache.PreloadAllData(stockCodes);
+                        
+                        // 2. 创建批量KD计算器并预计算所有KD（使用ChartService确保一致性）
+                        _batchKDCalculator = new BatchKDCalculator(_klineMemoryCache, realTimeCache);
+                        _batchKDCalculator.PreCalculateAllKD(stockCodes, initTargetDate);
+                        
+                        // 3. 使用批量计算器重新创建统一过滤器
+                        unifiedFilter = new UnifiedStockFilter(kdCalculator, realTimeCache, _batchKDCalculator);
+                        unifiedFilter.LogMessage += (msg) => LogMessage?.Invoke(msg);
+                        
+                        Console.WriteLine("[性能优化] ✅ 内存缓存和批量KD计算器初始化成功！");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[性能优化] ⚠️ 初始化内存缓存失败，使用标准模式: {ex.Message}");
+                        
+                        // 降级到标准模式
+                        _klineMemoryCache = null;
+                        _batchKDCalculator = null;
+                    }
+                }
+
                 // 性能估算
                 if (realTimeCache.Count >= 100)
                 {
@@ -512,15 +568,51 @@ namespace MQReceiver.Services
                 _lastCacheUpdateTime = currentCacheUpdateTime;
                 _lastDbDate = latestDbDate;
 
-                // ========== 执行8个新的过滤条件 ==========
-                var enrichedResults1 = ExecuteNewFilter(1, "强多金叉", targetDate);
-                var enrichedResults2 = ExecuteNewFilter(2, "中多金叉", targetDate);
-                var enrichedResults3 = ExecuteNewFilter(3, "强多排列", targetDate);
-                var enrichedResults4 = ExecuteNewFilter(4, "中多排列", targetDate);
-                var enrichedResults5 = ExecuteNewFilter(5, "强多缠绕", targetDate);
-                var enrichedResults6 = ExecuteNewFilter(6, "中多缠绕", targetDate);
-                var enrichedResults7 = ExecuteNewFilter(7, "强多反弹", targetDate);
-                var enrichedResults8 = ExecuteNewFilter(8, "中多反弹", targetDate);
+                // 关键修复：确保 StockInfoCache 已加载（用于获取正确的股票名称）
+                Console.WriteLine("[过滤准备] 确保 StockInfoCache 已加载...");
+                StockInfoCache.Instance.EnsureLoaded();
+                if (StockInfoCache.Instance.Count == 0)
+                {
+                    Console.WriteLine("[过滤准备] StockInfoCache 为空，尝试同步...");
+                    StockInfoCache.Instance.SyncFromDailyData();
+                }
+                Console.WriteLine($"[过滤准备] StockInfoCache 已加载 {StockInfoCache.Instance.Count} 只股票名称");
+
+                // 性能优化：显示内存缓存状态
+                if (_klineMemoryCache != null && _batchKDCalculator != null)
+                {
+                    var kdStats = _batchKDCalculator.GetCacheStats();
+                    Console.WriteLine($"[性能优化] 使用内存模式 - 已缓存 {kdStats.stockCount} 只股票, {kdStats.totalResults} 个KD结果");
+                }
+
+                // ========== 执行6个新的过滤条件（并行执行，提升速度）==========
+                Console.WriteLine("开始并行执行6个过滤条件...");
+                Console.WriteLine($"股票数量: {realTimeCache.Count}");
+                Console.WriteLine();
+                
+                // 并行执行6个过滤器，大幅提升速度
+                var filter1Task = Task.Run(() => ExecuteNewFilter(1, "强多排列", targetDate));
+                var filter2Task = Task.Run(() => ExecuteNewFilter(2, "中多排列", targetDate));
+                var filter3Task = Task.Run(() => ExecuteNewFilter(3, "强多缠绕", targetDate));
+                var filter4Task = Task.Run(() => ExecuteNewFilter(4, "中多缠绕", targetDate));
+                var filter5Task = Task.Run(() => ExecuteNewFilter(5, "强多反弹", targetDate));
+                var filter6Task = Task.Run(() => ExecuteNewFilter(6, "中多反弹", targetDate));
+                
+                // 等待所有过滤器完成，并显示进度
+                string waitMsg = "等待所有过滤器完成...";
+                Console.WriteLine(waitMsg);
+                LogMessage?.Invoke(waitMsg);
+                Task.WaitAll(filter1Task, filter2Task, filter3Task, filter4Task, filter5Task, filter6Task);
+                
+                var enrichedResults1 = filter1Task.Result;
+                var enrichedResults2 = filter2Task.Result;
+                var enrichedResults3 = filter3Task.Result;
+                var enrichedResults4 = filter4Task.Result;
+                var enrichedResults5 = filter5Task.Result;
+                var enrichedResults6 = filter6Task.Result;
+                
+                Console.WriteLine("所有过滤器执行完成！");
+                Console.WriteLine();
 
                 stopwatch.Stop();
 
@@ -533,14 +625,19 @@ namespace MQReceiver.Services
                     Table4Results = enrichedResults4,
                     Table5Results = enrichedResults5,
                     Table6Results = enrichedResults6,
-                    Table7Results = enrichedResults7,
-                    Table8Results = enrichedResults8,
+                    Table7Results = new List<FilterResultWithHistory>(), // 空列表
+                    Table8Results = new List<FilterResultWithHistory>(), // 空列表
                     FilterTime = DateTime.Now,
                     ElapsedSeconds = stopwatch.Elapsed.TotalSeconds,
                     ProcessedCount = realTimeCache.Count
                 });
 
                 Console.WriteLine();
+                // 输出K线缓存统计信息
+                var klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
+                var (cacheCount, totalDataPoints) = klineRepository.GetCacheStats();
+                Console.WriteLine($"[K线缓存统计] 缓存股票数: {cacheCount}, 总数据点数: {totalDataPoints:N0}");
+                
                 Console.WriteLine("========== KD过滤完成 ==========");
                 Console.WriteLine("实际执行时间: {0:F2} 秒 ({1:F1} 分钟)",
                     stopwatch.Elapsed.TotalSeconds, stopwatch.Elapsed.TotalMinutes);
@@ -563,19 +660,45 @@ namespace MQReceiver.Services
 
         /// <summary>
         /// 执行单个新过滤条件
+        /// 添加异常处理，确保单个过滤器失败不影响其他过滤器
+        /// 添加进度提示，让用户知道执行状态
         /// </summary>
         private List<FilterResultWithHistory> ExecuteNewFilter(int filterId, string filterName, DateTime targetDate)
         {
-            Console.WriteLine($"【{filterName}】（过滤器{filterId}）");
-            Console.WriteLine("----------------------------------------");
-            var condition = new NewFilterCondition(filterId);
-            var sw = Stopwatch.StartNew();
-            var results = unifiedFilter.FilterParallel(condition, targetDate);
-            sw.Stop();
-            Console.WriteLine("结果数量: {0} 只股票", results.Count);
-            Console.WriteLine("处理时间: {0:F2} 秒", sw.Elapsed.TotalSeconds);
-            Console.WriteLine();
-            return results;
+            try
+            {
+                var startTime = DateTime.Now;
+                string startMsg = $"【{filterName}】（过滤器{filterId}）开始执行...";
+                Console.WriteLine($"[{startTime:HH:mm:ss}] {startMsg}");
+                LogMessage?.Invoke($"[{startTime:HH:mm:ss}] {startMsg}");
+                
+                var condition = new NewFilterCondition(filterId);
+                var sw = Stopwatch.StartNew();
+                var results = unifiedFilter.FilterParallel(condition, targetDate);
+                sw.Stop();
+                
+                var endTime = DateTime.Now;
+                string completeMsg = $"【{filterName}】（过滤器{filterId}）完成 - 结果: {results.Count} 只股票，耗时: {sw.Elapsed.TotalSeconds:F2} 秒";
+                Console.WriteLine($"[{endTime:HH:mm:ss}] {completeMsg}");
+                LogMessage?.Invoke($"[{endTime:HH:mm:ss}] {completeMsg}");
+                
+                return results;
+            }
+            catch (Exception ex)
+            {
+                var errorTime = DateTime.Now;
+                string errorMsg = $"错误: 过滤器{filterId}（{filterName}）执行失败: {ex.Message}";
+                Console.WriteLine($"[{errorTime:HH:mm:ss}] {errorMsg}");
+                LogMessage?.Invoke($"[{errorTime:HH:mm:ss}] {errorMsg}");
+                
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"  内部异常: {ex.InnerException.Message}");
+                }
+                Console.WriteLine($"  异常堆栈: {ex.StackTrace}");
+                // 返回空列表，确保不影响其他过滤器的执行
+                return new List<FilterResultWithHistory>();
+            }
         }
 
         /// <summary>
@@ -617,40 +740,86 @@ namespace MQReceiver.Services
         /// <summary>
         /// 从数据库加载股票代码列表到缓存
         /// 当实时数据缓存为空时调用，使过滤服务可以基于日线数据运行
+        /// 改进：1. 过滤非A股股票  2. 确保股票名称正确加载
         /// </summary>
         private void LoadStockCodesFromDatabase()
         {
             try
             {
                 var repository = new PostgresStockDataRepository();
-                var stockCodes = repository.GetAllStockCodes();
+                var allStockCodes = repository.GetAllStockCodes();
 
-                if (stockCodes != null && stockCodes.Count > 0)
+                if (allStockCodes != null && allStockCodes.Count > 0)
                 {
-                    Console.WriteLine($"从数据库获取到 {stockCodes.Count} 只股票代码");
+                    Console.WriteLine($"[股票加载] 从数据库获取到 {allStockCodes.Count} 只股票代码");
 
-                    // 获取股票名称
-                    var stockNames = repository.GetAllStockNames();
-                    Console.WriteLine($"从stock_info表获取到 {stockNames.Count} 个股票名称");
+                    // 关键修复1：在加载时就过滤掉非A股股票（指数、基金、B股、已退市等）
+                    var validStockCodes = allStockCodes.Where(code => StockDataParser.IsValidStockCode(code)).ToList();
+                    int filteredCount = allStockCodes.Count - validStockCodes.Count;
+                    
+                    Console.WriteLine($"[股票加载] 过滤后剩余 {validStockCodes.Count} 只有效A股（已过滤 {filteredCount} 只非A股）");
 
-                    // 如果stock_info表没有数据，尝试从日线数据初始化
-                    if (stockNames.Count == 0)
+                    // 关键修复2：确保 StockInfoCache 已加载（包含完整的股票名称）
+                    Console.WriteLine($"[股票加载] 正在加载 StockInfoCache...");
+                    StockInfoCache.Instance.EnsureLoaded();
+                    
+                    // 如果缓存为空，尝试从日线数据同步
+                    if (StockInfoCache.Instance.Count == 0)
                     {
-                        Console.WriteLine("stock_info表为空，尝试从日线数据初始化...");
-                        repository.InitializeStockInfoFromDailyData();
-                        // 重新获取（此时只有股票代码，没有名称）
-                        stockNames = repository.GetAllStockNames();
+                        Console.WriteLine($"[股票加载] StockInfoCache 为空，尝试从日线数据同步...");
+                        StockInfoCache.Instance.SyncFromDailyData();
                     }
+                    
+                    Console.WriteLine($"[股票加载] StockInfoCache 已加载 {StockInfoCache.Instance.Count} 只股票名称");
+
+                    // 关键修复3：过滤掉所有ST股票（*ST、ST等）
+                    var nonSTStockCodes = new List<string>();
+                    int stFilteredCount = 0;
+                    
+                    foreach (var code in validStockCodes)
+                    {
+                        string stockName = StockInfoCache.Instance.GetStockName(code);
+                        // 使用 StockDataParser 检查是否为ST股票
+                        if (StockDataParser.IsSTStock(stockName))
+                        {
+                            stFilteredCount++;
+                            continue; // 跳过ST股票
+                        }
+                        nonSTStockCodes.Add(code);
+                    }
+                    
+                    Console.WriteLine($"[股票加载] 过滤ST股票后剩余 {nonSTStockCodes.Count} 只股票（已过滤 {stFilteredCount} 只ST股票）");
+
+                    // 获取股票名称（从 StockInfoCache，而不是直接查数据库）
+                    var stockNames = repository.GetAllStockNames();
+                    Console.WriteLine($"[股票加载] 从stock_info表获取到 {stockNames.Count} 个股票名称");
 
                     // 统计数据覆盖情况
-                    PrintDataCoverageStatistics(repository, stockCodes);
+                    PrintDataCoverageStatistics(repository, nonSTStockCodes);
 
-                    // 为每个股票代码创建一个基本的实时数据记录
+                    // 为每个有效股票代码创建实时数据记录
                     var records = new List<RealTimeDataRecord>();
-                    foreach (var code in stockCodes)
+                    int hasNameCount = 0;
+                    int noNameCount = 0;
+                    
+                    foreach (var code in nonSTStockCodes)
                     {
-                        // 尝试获取股票名称，如果没有则使用代码作为名称
-                        string name = stockNames.ContainsKey(code) ? stockNames[code] : code;
+                        // 关键修复3：优先从 StockInfoCache 获取名称（包含内置字典）
+                        string name = StockInfoCache.Instance.GetStockName(code);
+                        
+                        // 如果名称等于代码（说明没有找到名称），标记为无名称
+                        if (name == code)
+                        {
+                            noNameCount++;
+                            if (noNameCount <= 10) // 只输出前10个示例
+                            {
+                                Console.WriteLine($"  [警告] {code} 没有找到股票名称");
+                            }
+                        }
+                        else
+                        {
+                            hasNameCount++;
+                        }
 
                         records.Add(new RealTimeDataRecord
                         {
@@ -661,12 +830,21 @@ namespace MQReceiver.Services
                         });
                     }
 
+                    Console.WriteLine($"[股票加载] 名称统计: 有名称={hasNameCount}, 无名称={noNameCount}");
+                    
+                    if (noNameCount > 0)
+                    {
+                        Console.WriteLine($"[股票加载] 提示: {noNameCount} 只股票缺少名称，将显示代码");
+                    }
+
                     realTimeCache.UpdateData(records);
+                    Console.WriteLine($"[股票加载] 已将 {records.Count} 只有效A股加载到缓存");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"从数据库加载股票代码失败: {ex.Message}");
+                Console.WriteLine($"[股票加载] 错误: 从数据库加载股票代码失败 - {ex.Message}");
+                Console.WriteLine($"[股票加载] 堆栈: {ex.StackTrace}");
             }
         }
 

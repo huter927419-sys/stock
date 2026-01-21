@@ -49,7 +49,7 @@ namespace MQReceiver.Views
             try
             {
                 var chartService = new ChartService();
-                chartData = chartService.LoadChartData(stockCode, 180); // 加载最近180天
+                chartData = chartService.LoadChartData(stockCode, 0); // 0表示加载所有历史数据
 
                 if (chartData == null || chartData.DailyKline.Count == 0)
                 {

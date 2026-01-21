@@ -179,24 +179,58 @@ namespace MQReceiver.Repositories
                     connection.Open();
 
                     // 只获取A股股票代码，且满足数据质量要求
+                    // 在SQL层面就过滤掉非A股、ST股票、退市股票等
                     // 1. 股票代码符合A股格式
-                    // 2. 最近一年内至少有200个交易日的数据（正常一年约250个交易日）
-                    // 3. 最新数据日期在数据库最新日期的30天内（排除退市股票）
+                    // 2. 排除000000-000199范围（指数/债券指数）
+                    // 3. 排除已知的无效代码（黑名单）
+                    // 4. 通过stock_info表过滤ST股票和无效股票
+                    // 5. 最近一年内至少有200个交易日的数据
+                    // 6. 最新数据日期在数据库最新日期的30天内（排除退市股票）
                     string sql = @"
                         WITH max_date AS (
                             SELECT MAX(trade_date) as latest_date FROM stock_daily_data
                         ),
                         recent_data AS (
-                            SELECT stock_code,
-                                   COUNT(*) as data_count,
-                                   MAX(trade_date) as last_date,
-                                   MIN(trade_date) as first_date
-                            FROM stock_daily_data
-                            WHERE trade_date >= (SELECT latest_date FROM max_date) - INTERVAL '365 days'
-                              AND stock_code ~ '^(600|601|603|605|688|000|001|002|003|300|301)[0-9]{3}$'
-                            GROUP BY stock_code
-                            HAVING COUNT(*) >= 200
-                               AND MAX(trade_date) >= (SELECT latest_date FROM max_date) - INTERVAL '30 days'
+                            SELECT 
+                                d.stock_code,
+                                COUNT(*) as data_count,
+                                MAX(d.trade_date) as last_date,
+                                MIN(d.trade_date) as first_date
+                            FROM stock_daily_data d
+                            -- 关联 stock_info 表，获取股票信息用于过滤
+                            LEFT JOIN stock_info i ON d.stock_code = i.stock_code
+                            WHERE d.trade_date >= (SELECT latest_date FROM max_date) - INTERVAL '365 days'
+                              -- 1. 股票代码格式过滤（A股、创业板、科创板）
+                              AND d.stock_code ~ '^(600|601|603|605|688|000|001|002|003|300|301)[0-9]{3}$'
+                              -- 2. 排除000000-000199范围（几乎全是指数和债券指数）
+                              AND NOT (d.stock_code ~ '^000[0-1][0-9]{2}$')
+                              -- 3. 排除已知的无效代码（指数、基金、B股、已退市等）
+                              AND d.stock_code NOT IN (
+                                  '000001', '000016', '000300', '000038', '000091',
+                                  '000101', '000102', '000103', '000104', '000105', '000106', '000107', '000108',
+                                  '000110', '000132', '000137', '000146', '000807', '000905', '000906', '000914', '000985', '000991', '000992', '000993',
+                                  '000071', '000076', '000139', '000974',
+                                  '000018', '000033', '000046', '000052', '000053', '000073', '000077', '000816',
+                                  '000161', '000847', '000854'
+                              )
+                              -- 4. 通过 stock_info 表过滤（如果表中有数据）
+                              AND (i.stock_code IS NULL OR (
+                                  -- 只选择有效的股票（is_active = TRUE）
+                                  (i.is_active IS NULL OR i.is_active = TRUE)
+                                  -- 排除ST股票（名称中包含ST或*ST）
+                                  AND (i.stock_name IS NULL OR (
+                                      i.stock_name !~ '\*?ST' 
+                                      AND i.stock_name NOT LIKE '%ST%'
+                                  ))
+                                  -- 排除指数、基金等（stock_type = '股票'）
+                                  AND (i.stock_type IS NULL OR i.stock_type = '股票')
+                              ))
+                            GROUP BY d.stock_code
+                            HAVING 
+                                -- 数据量要求：最近一年至少200个交易日
+                                COUNT(*) >= 200
+                                -- 数据新鲜度：最新数据在30天内（排除退市股票）
+                                AND MAX(d.trade_date) >= (SELECT latest_date FROM max_date) - INTERVAL '30 days'
                         )
                         SELECT stock_code FROM recent_data ORDER BY stock_code";
 

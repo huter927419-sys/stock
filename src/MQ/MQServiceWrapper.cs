@@ -433,9 +433,17 @@ namespace MQReceiver.Services
 
                 if (records.Count > 0 && realTimeCache != null)
                 {
+                    // 过滤ST股票和非A股股票
+                    var filteredRecords = new List<RealTimeDataRecord>();
+                    int stFilteredCount = 0;
+                    
                     foreach (var record in records)
                     {
                         if (string.IsNullOrEmpty(record.StockCode))
+                            continue;
+
+                        // 过滤非A股股票
+                        if (!StockDataParser.IsValidStockCode(record.StockCode))
                             continue;
 
                         var existingRecord = realTimeCache.GetData(record.StockCode);
@@ -443,10 +451,31 @@ namespace MQReceiver.Services
                         {
                             record.StockName = existingRecord.StockName;
                         }
+                        
+                        // 获取股票名称（用于检查ST股票）
+                        string stockName = record.StockName;
+                        if (string.IsNullOrEmpty(stockName))
+                        {
+                            stockName = StockInfoCache.Instance.GetStockName(record.StockCode);
+                        }
+                        
+                        // 过滤ST股票
+                        if (StockDataParser.IsSTStock(stockName))
+                        {
+                            stFilteredCount++;
+                            continue;
+                        }
+                        
+                        filteredRecords.Add(record);
+                    }
+                    
+                    if (stFilteredCount > 0)
+                    {
+                        Log($"[实时数据] 已过滤 {stFilteredCount} 只ST股票");
                     }
 
-                    realTimeCache.UpdateData(records);
-                    Log($"成功更新 {records.Count} 条实时数据到内存缓存（当前缓存数量: {realTimeCache.Count}）");
+                    realTimeCache.UpdateData(filteredRecords);
+                    Log($"成功更新 {filteredRecords.Count} 条实时数据到内存缓存（当前缓存数量: {realTimeCache.Count}）");
                 }
             }
             catch (Exception ex)

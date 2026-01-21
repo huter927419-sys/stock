@@ -21,3 +21,11 @@ Thumbs.db
 # Logs and temp files
 *.log
 *.tmp
+
+# Windows reserved name (invalid for git on Windows)
+nul
+
+# Database backups and exports (large files)
+db/backups/
+db/exports/
+*.dump

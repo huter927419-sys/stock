@@ -50,6 +50,11 @@ namespace MQReceiver.Models
         public List<CandleDataPoint> DailyKline { get; set; }
 
         /// <summary>
+        /// 日KD指标序列（用于图表显示，与日K线完全对齐）
+        /// </summary>
+        public List<KDDataPoint> DailyKD { get; set; }
+
+        /// <summary>
         /// 周KD指标序列
         /// </summary>
         public List<KDDataPoint> WeeklyKD { get; set; }
@@ -67,6 +72,7 @@ namespace MQReceiver.Models
         public ChartData()
         {
             DailyKline = new List<CandleDataPoint>();
+            DailyKD = new List<KDDataPoint>();
             WeeklyKD = new List<KDDataPoint>();
             MonthlyKD = new List<KDDataPoint>();
             QuarterlyKD = new List<KDDataPoint>();

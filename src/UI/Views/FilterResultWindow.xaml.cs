@@ -67,15 +67,38 @@ namespace MQReceiver.Views
             }
         }
 
+        // 保存当前打开的图表窗口（单例模式）
+        private static WebChartWindow _currentChartWindow = null;
+
         /// <summary>
-        /// 打开股票图表窗口
+        /// 打开股票图表窗口（单窗口模式：新窗口覆盖旧窗口）
         /// </summary>
         private void OpenStockChart(string stockCode)
         {
             try
             {
+                // 如果已有图表窗口打开，先关闭它
+                if (_currentChartWindow != null && _currentChartWindow.IsLoaded)
+                {
+                    _currentChartWindow.Close();
+                    _currentChartWindow = null;
+                }
+
+                // 创建新的图表窗口
                 var chartWindow = new WebChartWindow(stockCode);
+                _currentChartWindow = chartWindow;
+                
+                // 窗口关闭时清空引用
+                chartWindow.Closed += (s, e) =>
+                {
+                    if (_currentChartWindow == chartWindow)
+                    {
+                        _currentChartWindow = null;
+                    }
+                };
+                
                 chartWindow.Show();
+                Console.WriteLine($"[单窗口模式] 已打开股票 {stockCode} 的图表窗口");
             }
             catch (Exception ex)
             {

@@ -59,17 +59,40 @@ namespace MQReceiver.Cache
                         using (var reader = cmd.ExecuteReader())
                         {
                             int count = 0;
+                            int filteredByCode = 0;
+                            int filteredByName = 0;
                             while (reader.Read())
                             {
                                 string stockCode = reader.GetString(0);
                                 string stockName = reader.IsDBNull(1) ? stockCode : reader.GetString(1);
                                 int marketCode = reader.IsDBNull(2) ? 0 : reader.GetInt16(2);
+                                
+                                // 双重验证：代码 + 名称
+                                if (!Helpers.StockDataParser.IsValidStockCode(stockCode))
+                                {
+                                    filteredByCode++;
+                                    continue;
+                                }
+                                
+                                // 额外检查：名称是否包含非A股关键词
+                                if (Helpers.StockDataParser.IsNonAStockByName(stockName))
+                                {
+                                    filteredByName++;
+                                    continue;
+                                }
 
                                 _stockNameCache[stockCode] = stockName;
                                 _marketCodeCache[stockCode] = marketCode;
                                 count++;
                             }
                             Console.WriteLine($"[StockInfoCache] 从数据库加载了 {count} 条股票信息");
+                            int totalFiltered = filteredByCode + filteredByName;
+                            if (totalFiltered > 0)
+                            {
+                                Console.WriteLine($"[StockInfoCache] 过滤了 {totalFiltered} 条非A股代码");
+                                Console.WriteLine($"  • 按代码规则过滤: {filteredByCode} 条（指数/B股等）");
+                                Console.WriteLine($"  • 按名称关键词过滤: {filteredByName} 条（债券/基金等）");
+                            }
                         }
                     }
                     _isLoaded = true;
@@ -83,17 +106,159 @@ namespace MQReceiver.Cache
 
         /// <summary>
         /// 确保缓存已加载
+        /// 改进：如果缓存为空，自动尝试同步和补充名称
+        /// 增强：自动检查并修复常见问题
         /// </summary>
         public void EnsureLoaded()
         {
             if (!_isLoaded)
             {
+                // 第一步：自动修复数据库中的常见问题
+                AutoFixCommonIssues();
+                
+                // 第二步：加载数据
                 LoadFromDatabase();
+                
+                // 如果加载后仍然为空，尝试从日线数据同步
+                if (_stockNameCache.Count == 0)
+                {
+                    Console.WriteLine("[StockInfoCache] 缓存为空，尝试从日线数据同步...");
+                    SyncFromDailyData();
+                }
+                
+                // 补充内置字典中的名称到缓存
+                UpdateFromBuiltinDictionary();
+            }
+        }
+        
+        /// <summary>
+        /// 自动修复stock_info表的常见问题
+        /// </summary>
+        private void AutoFixCommonIssues()
+        {
+            try
+            {
+                Console.WriteLine("[数据库修复] 正在检查并修复常见问题...");
+                
+                using (var conn = new NpgsqlConnection(_connectionString))
+                {
+                    conn.Open();
+                    
+                    using (var transaction = conn.BeginTransaction())
+                    {
+                        try
+                        {
+                            int totalFixed = 0;
+                            
+                            // 1. 修复市场代码错误
+                            using (var cmd = new NpgsqlCommand(@"
+                                UPDATE stock_info
+                                SET market_code = CASE
+                                        WHEN stock_code ~ '^(600|601|603|605|688|900)' THEN 1
+                                        WHEN stock_code ~ '^(000|001|002|003|004|300|301|200)' THEN 0
+                                        WHEN stock_code ~ '^(43|83|87|88)' THEN 2
+                                        ELSE 0
+                                    END,
+                                    market_name = CASE
+                                        WHEN stock_code ~ '^(600|601|603|605|688|900)' THEN '上海'
+                                        WHEN stock_code ~ '^(000|001|002|003|004|300|301|200)' THEN '深圳'
+                                        WHEN stock_code ~ '^(43|83|87|88)' THEN '北京'
+                                        ELSE '深圳'
+                                    END,
+                                    update_time = CURRENT_TIMESTAMP
+                                WHERE (
+                                    (stock_code ~ '^(600|601|603|605|688)' AND market_code != 1) OR
+                                    (stock_code ~ '^(000|001|002|003|004|300|301)' AND market_code != 0) OR
+                                    (stock_code ~ '^(43|83|87|88)' AND market_code != 2)
+                                )", conn, transaction))
+                            {
+                                int affected = cmd.ExecuteNonQuery();
+                                if (affected > 0)
+                                {
+                                    Console.WriteLine($"[数据库修复] 修复市场代码: {affected} 条");
+                                    totalFixed += affected;
+                                }
+                            }
+                            
+                            // 2. 停用指数代码
+                            using (var cmd = new NpgsqlCommand(@"
+                                UPDATE stock_info
+                                SET is_active = FALSE, update_time = CURRENT_TIMESTAMP
+                                WHERE stock_code IN (
+                                    '000001', '000002', '000003', '000004', '000006', 
+                                    '000008', '000009', '000010', '000011', '000012', '000013',
+                                    '000016', '000017', '000300', '000688', '000905', '000906',
+                                    '399001', '399002', '399003', '399004', '399005', '399006'
+                                ) AND is_active = TRUE", conn, transaction))
+                            {
+                                int affected = cmd.ExecuteNonQuery();
+                                if (affected > 0)
+                                {
+                                    Console.WriteLine($"[数据库修复] 停用指数代码: {affected} 条");
+                                    totalFixed += affected;
+                                }
+                            }
+                            
+                            // 3. 停用B股
+                            using (var cmd = new NpgsqlCommand(@"
+                                UPDATE stock_info
+                                SET is_active = FALSE, update_time = CURRENT_TIMESTAMP
+                                WHERE (stock_code ~ '^200' OR stock_code ~ '^900')
+                                AND is_active = TRUE", conn, transaction))
+                            {
+                                int affected = cmd.ExecuteNonQuery();
+                                if (affected > 0)
+                                {
+                                    Console.WriteLine($"[数据库修复] 停用B股代码: {affected} 条");
+                                    totalFixed += affected;
+                                }
+                            }
+                            
+                            // 4. 停用已知的已退市股票
+                            using (var cmd = new NpgsqlCommand(@"
+                                UPDATE stock_info
+                                SET is_active = FALSE, update_time = CURRENT_TIMESTAMP
+                                WHERE stock_code IN (
+                                    '000018', '000033', '000046', '000139', '000669', 
+                                    '000760', '000816', '000914', '000981', '600656'
+                                ) AND is_active = TRUE", conn, transaction))
+                            {
+                                int affected = cmd.ExecuteNonQuery();
+                                if (affected > 0)
+                                {
+                                    Console.WriteLine($"[数据库修复] 停用已退市股票: {affected} 条");
+                                    totalFixed += affected;
+                                }
+                            }
+                            
+                            transaction.Commit();
+                            
+                            if (totalFixed > 0)
+                            {
+                                Console.WriteLine($"[数据库修复] 总计修复 {totalFixed} 条记录");
+                            }
+                            else
+                            {
+                                Console.WriteLine("[数据库修复] ✓ 数据库状态良好，无需修复");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.Rollback();
+                            Console.WriteLine($"[数据库修复] 修复失败（已回滚）: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[数据库修复] 无法连接数据库: {ex.Message}");
             }
         }
 
         /// <summary>
         /// 获取股票名称
+        /// 改进：添加详细日志，方便排查名称缺失问题
         /// </summary>
         /// <param name="stockCode">股票代码</param>
         /// <returns>股票名称，如果没找到返回股票代码本身</returns>
@@ -119,6 +284,13 @@ namespace MQReceiver.Cache
                 {
                     return name;
                 }
+                
+                // 如果名称不完整，记录日志但仍返回（总比显示代码好）
+                if (IsIncompleteName(name))
+                {
+                    // 静默处理，不输出太多日志
+                    return name;
+                }
             }
 
             // 如果缓存中有值（即使不完整），但内置字典没有，返回缓存值
@@ -129,14 +301,31 @@ namespace MQReceiver.Cache
 
             // 如果缓存中没有，尝试从数据库查询并缓存
             string dbName = QueryStockNameFromDB(stockCode);
-            if (!string.IsNullOrEmpty(dbName))
+            if (!string.IsNullOrEmpty(dbName) && dbName != stockCode)
             {
                 _stockNameCache[stockCode] = dbName;
                 return dbName;
             }
 
+            // 最后兜底：返回股票代码（并记录到静态集合，避免重复输出）
+            lock (_missingNamesLock)
+            {
+                if (!_missingNamesReported.Contains(stockCode))
+                {
+                    _missingNamesReported.Add(stockCode);
+                    if (_missingNamesReported.Count <= 20) // 只输出前20个
+                    {
+                        Console.WriteLine($"[StockInfoCache] 警告: 未找到 {stockCode} 的股票名称，将显示代码");
+                    }
+                }
+            }
+            
             return stockCode;
         }
+        
+        // 用于跟踪已报告的缺失名称，避免重复日志
+        private static readonly HashSet<string> _missingNamesReported = new HashSet<string>();
+        private static readonly object _missingNamesLock = new object();
 
         /// <summary>
         /// 检查名称是否不完整（如截断的ST名称）
@@ -147,10 +336,17 @@ namespace MQReceiver.Cache
                 return true;
 
             // 检查是否是不完整的ST名称（如"S*ST"、"*ST"、"ST"、"*ST步"等）
-            // 完整的ST名称应该至少有ST前缀+2个汉字
-            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^[S\*]*ST.?$"))
+            // 完整的ST名称应该至少有ST前缀+2个汉字（4个字符以上）
+            // 修正正则：只匹配长度<=3的ST名称，或者ST后面只有1个字的
+            if (name.Length <= 3 && System.Text.RegularExpressions.Regex.IsMatch(name, @"^[S\*]*ST"))
             {
-                return true; // 只有前缀或前缀+1个字，视为不完整
+                return true; // ST前缀但名称太短
+            }
+            
+            // 检查ST后面只有1个字符的情况（如"ST步"、"*ST龙"）
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"^[S\*]*ST.{1}$"))
+            {
+                return true; // ST + 1个字，视为不完整
             }
 
             return false;
@@ -163,19 +359,26 @@ namespace MQReceiver.Cache
         {
             var builtinNames = new Dictionary<string, string>
             {
-                // 普通股票
-                {"000022", "深赤湾A"}, {"000033", "同花顺"}, {"000057", "厦门象屿"}, {"000071", "凤凰光学"},
-                {"000073", "光明肉业"}, {"000092", "惠天热电"}, {"000094", "大名城"}, {"000101", "明星电力"},
+                // 深圳主板股票 (000开头)
+                {"000022", "深赤湾A"}, {"000092", "惠天热电"}, {"000094", "大名城"},
+                // 移除 000101 - 这是债券指数，不是A股！
                 {"000105", "永鼎股份"}, {"000106", "重庆路桥"}, {"000112", "浙江东日"}, {"000113", "浙江东方"},
                 {"000116", "三峡水利"}, {"000117", "西宁特钢"}, {"000119", "瑞茂通"}, {"000122", "兰花科创"},
-                {"000125", "铁龙物流"}, {"000130", "波导股份"}, {"000132", "重庆啤酒"}, {"000133", "东湖高新"},
+                {"000125", "铁龙物流"}, {"000130", "波导股份"}, {"000133", "东湖高新"},
                 {"000135", "乐凯胶片"}, {"000141", "中国宝安"}, {"000145", "廊坊发展"}, {"000152", "维科技术"},
-                {"000160", "巨化股份"}, {"000853", "冀东装备"}, {"000854", "春兰股份"}, {"000891", "阳光城"},
-                {"000982", "宁波能源"},
+                {"000160", "巨化股份"}, {"000828", "东莞控股"}, {"000830", "鲁西化工"}, {"000851", "高鸿股份"},
+                {"000853", "冀东装备"}, {"000891", "阳光城"}, {"000982", "宁波能源"},
+                
+                // 上海主板股票 (600开头)
+                {"600057", "厦门象屿"}, {"600071", "凤凰光学"}, {"600073", "光明肉业"}, 
+                {"600101", "明星电力"}, {"600132", "重庆啤酒"}, {"600854", "春兰股份"},
+                
+                // 创业板股票 (300开头)
+                {"300033", "同花顺"},
                 // ST股票（注意：ST股票名称可能会变化，以实时数据为准）
-                {"000693", "*ST华泽"}, {"000699", "S*ST佳唐"}, {"000564", "ST供销大集"}, {"000498", "*ST莲花"},
+                {"603268", "*ST松发"}, {"000693", "*ST华泽"}, {"000699", "S*ST佳唐"}, {"000564", "ST供销大集"}, {"000498", "*ST莲花"},
                 {"000662", "*ST天夏"}, {"000673", "*ST当代"}, {"000760", "*ST斯太"}, {"000816", "*ST慧业"},
-                {"000981", "*ST银亿"}, {"001270", "*ST铖昌"}, {"002029", "七匹狼"}, {"002070", "*ST众和"},
+                {"000981", "*ST银亿"}, {"001270", "*ST铖昌"}, {"002029", "七匹狼"}, {"002070", "*ST众和"}, {"002209", "达意隆"},
                 {"002113", "*ST天润"}, {"002220", "*ST天宝"}, {"002427", "*ST尤夫"}, {"002450", "*ST康得"},
                 {"002569", "*ST步森"}, {"002647", "*ST仁东"}, {"600086", "*ST龙力"}, {"600145", "*ST新亿"},
                 {"600155", "*ST宝硕"}, {"600175", "*ST祥源"}, {"600185", "*ST华讯"}, {"600196", "*ST复星"},
@@ -662,6 +865,23 @@ namespace MQReceiver.Cache
             catch (Exception ex)
             {
                 Console.WriteLine($"[StockInfoCache] 从日线数据同步失败: {ex.Message}");
+                Console.WriteLine($"[StockInfoCache] 错误详情: {ex.GetType().Name}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"[StockInfoCache] 内部错误: {ex.InnerException.Message}");
+                }
+                Console.WriteLine($"[StockInfoCache] 堆栈跟踪: {ex.StackTrace}");
+                
+                // 即使同步失败，也尝试加载现有数据
+                try
+                {
+                    Console.WriteLine($"[StockInfoCache] 尝试加载现有缓存数据...");
+                    LoadFromDatabase();
+                }
+                catch (Exception loadEx)
+                {
+                    Console.WriteLine($"[StockInfoCache] 加载缓存失败: {loadEx.Message}");
+                }
             }
 
             return newCount;
@@ -714,27 +934,28 @@ namespace MQReceiver.Cache
             var stockNames = new Dictionary<string, string>
             {
                 // 000开头的深圳股票
-                {"000001", "平安银行"}, {"000002", "万科A"}, {"000004", "国农科技"}, {"000005", "世纪星源"},
+                {"000001", "平安银行"}, {"000002", "万科A"}, {"000004", "国农科技"}, {"000005", "ST星源"},
                 {"000006", "深振业A"}, {"000007", "全新好"}, {"000008", "神州高铁"}, {"000009", "中国宝安"},
                 {"000010", "美丽生态"}, {"000011", "深物业A"}, {"000012", "南玻A"}, {"000014", "沙河股份"},
                 {"000016", "深康佳A"}, {"000017", "深中华A"}, {"000018", "神城A退"}, {"000019", "深粮控股"},
                 {"000020", "深华发A"}, {"000021", "深科技"}, {"000022", "深赤湾A"}, {"000023", "深天地A"},
                 {"000025", "特力A"}, {"000026", "飞亚达A"}, {"000027", "深圳能源"}, {"000028", "国药一致"},
                 {"000029", "深深房A"}, {"000030", "富奥股份"}, {"000031", "大悦城"}, {"000032", "深桑达A"},
-                {"000033", "同花顺"}, {"000034", "神州数码"}, {"000035", "中国天楹"}, {"000036", "华联控股"},
+                {"000034", "神州数码"}, {"000035", "中国天楹"}, {"000036", "华联控股"},
                 {"000037", "深南电A"}, {"000038", "深大通"}, {"000039", "中集集团"}, {"000040", "东旭蓝天"},
                 {"000042", "中洲控股"}, {"000043", "中航善达"}, {"000045", "深纺织A"}, {"000046", "泛海控股"},
-                {"000048", "京基智农"}, {"000049", "德赛电池"}, {"000050", "深天马A"}, {"000055", "方大集团"},
-                {"000056", "皇庭国际"}, {"000057", "厦门象屿"}, {"000058", "深赛格"}, {"000059", "华锦股份"},
+                {"000048", "京基智农"}, {"000049", "德赛电池"}, {"000050", "深天马A"},                 {"000055", "方大集团"}, {"000056", "皇庭国际"}, {"000058", "深赛格"}, {"000059", "华锦股份"},
                 {"000060", "中金岭南"}, {"000061", "农产品"}, {"000062", "深圳华强"}, {"000063", "中兴通讯"},
                 {"000065", "北方国际"}, {"000066", "中国长城"}, {"000068", "华控赛格"}, {"000069", "华侨城A"},
-                {"000070", "特发信息"}, {"000071", "凤凰光学"}, {"000073", "光明肉业"}, {"000078", "海王生物"},
+                {"000070", "特发信息"}, {"000078", "海王生物"},
                 {"000088", "盐田港"}, {"000089", "深圳机场"}, {"000090", "天健集团"}, {"000092", "惠天热电"},
                 {"000093", "新大洲A"}, {"000094", "大名城"}, {"000096", "广聚能源"}, {"000099", "中信海直"},
-                {"000100", "TCL科技"}, {"000101", "明星电力"}, {"000105", "永鼎股份"}, {"000106", "重庆路桥"},
+                {"000100", "TCL科技"}, 
+                // 移除 000101 - 这是"上证5年期信用债指数"（债券指数），不是A股！
+                {"000105", "永鼎股份"}, {"000106", "重庆路桥"},
                 {"000112", "浙江东日"}, {"000113", "浙江东方"}, {"000116", "三峡水利"}, {"000117", "西宁特钢"},
                 {"000119", "瑞茂通"}, {"000122", "兰花科创"}, {"000125", "铁龙物流"}, {"000130", "波导股份"},
-                {"000132", "重庆啤酒"}, {"000133", "东湖高新"}, {"000135", "乐凯胶片"}, {"000141", "中国宝安"},
+                {"000133", "东湖高新"}, {"000135", "乐凯胶片"}, {"000141", "中国宝安"},
                 {"000145", "廊坊发展"}, {"000152", "维科技术"}, {"000153", "丰原药业"}, {"000155", "川能动力"},
                 {"000156", "华数传媒"}, {"000157", "中联重科"}, {"000158", "常山北明"}, {"000159", "国际实业"},
                 {"000160", "巨化股份"}, {"000166", "申万宏源"}, {"000400", "许继电气"}, {"000401", "冀东水泥"},
@@ -807,7 +1028,7 @@ namespace MQReceiver.Cache
                 {"000831", "五矿稀土"}, {"000833", "粤桂股份"}, {"000835", "长城动漫"}, {"000836", "鑫茂科技"},
                 {"000837", "秦川机床"}, {"000838", "财信发展"}, {"000839", "中信国安"}, {"000848", "承德露露"},
                 {"000850", "华茂股份"}, {"000851", "高鸿股份"}, {"000852", "石化机械"}, {"000853", "冀东装备"},
-                {"000854", "春兰股份"}, {"000855", "皖维高新"}, {"000856", "云南锗业"}, {"000857", "酒钢宏兴"}, {"000858", "五粮液"},
+                {"000855", "皖维高新"}, {"000856", "云南锗业"}, {"000857", "酒钢宏兴"}, {"000858", "五粮液"},
                 {"000859", "国风塑业"}, {"000860", "顺鑫农业"}, {"000861", "海印股份"}, {"000862", "银星能源"},
                 {"000863", "三湘印象"}, {"000868", "安凯客车"}, {"000869", "张裕A"}, {"000875", "吉电股份"},
                 {"000876", "新希望"}, {"000877", "天山股份"}, {"000878", "云南铜业"}, {"000880", "潍柴重机"},
@@ -834,6 +1055,12 @@ namespace MQReceiver.Cache
                 {"000987", "越秀金控"}, {"000988", "华工科技"}, {"000989", "九芝堂"}, {"000990", "诚志股份"},
                 {"000993", "闽东电力"}, {"000995", "皇台酒业"}, {"000996", "中国中期"}, {"000997", "新大陆"},
                 {"000998", "隆平高科"}, {"000999", "华润三九"},
+                
+                // 深圳中小板股票 (002开头) - 补充重要的映射
+                {"002209", "达意隆"},  // ✅ 重要：修正达意隆的完整名称
+                
+                // 上海主板股票 (600开头) - 补充重要的映射
+                {"600101", "明星电力"},  // ✅ 重要：修正明星电力的正确代码
             };
 
             try

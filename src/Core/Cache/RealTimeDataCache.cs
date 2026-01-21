@@ -21,6 +21,12 @@ namespace MQReceiver.Cache
         // 最大缓存容量（防止内存溢出）
         private const int MAX_CACHE_SIZE = 10000;
 
+        /// <summary>
+        /// 数据更新事件（当有数据推送过来时触发）
+        /// 参数：更新的股票代码列表
+        /// </summary>
+        public event EventHandler<List<string>> DataUpdated;
+
         public RealTimeDataCache()
         {
             _cache = new ConcurrentDictionary<string, RealTimeDataRecord>();
@@ -59,6 +65,7 @@ namespace MQReceiver.Cache
             if (records == null || records.Count == 0)
                 return;
 
+            var updatedStockCodes = new List<string>();
             foreach (var record in records)
             {
                 if (!string.IsNullOrEmpty(record.StockCode))
@@ -69,9 +76,16 @@ namespace MQReceiver.Cache
                         continue; // 跳过新股票，保护内存
                     }
                     _cache[record.StockCode] = record;
+                    updatedStockCodes.Add(record.StockCode);
                 }
             }
             Interlocked.Exchange(ref _lastUpdateTimeTicks, DateTime.Now.Ticks);
+            
+            // 触发数据更新事件
+            if (updatedStockCodes.Count > 0)
+            {
+                DataUpdated?.Invoke(this, updatedStockCodes);
+            }
         }
 
         /// <summary>
@@ -90,6 +104,9 @@ namespace MQReceiver.Cache
 
             _cache[record.StockCode] = record;
             Interlocked.Exchange(ref _lastUpdateTimeTicks, DateTime.Now.Ticks);
+            
+            // 触发数据更新事件
+            DataUpdated?.Invoke(this, new List<string> { record.StockCode });
         }
 
         /// <summary>

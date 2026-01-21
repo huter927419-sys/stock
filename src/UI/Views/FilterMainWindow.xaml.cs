@@ -35,6 +35,9 @@ namespace MQReceiver.Views
 
             // 创建共享缓存
             _sharedCache = new RealTimeDataCache();
+            
+            // 将实时缓存传递给ViewModel，用于响应数据推送更新涨幅
+            _viewModel.SetRealTimeCache(_sharedCache);
 
             // 初始化股票信息缓存（从数据库加载或同步）
             InitializeStockInfoCache();
@@ -157,15 +160,38 @@ namespace MQReceiver.Views
             }
         }
 
+        // 保存当前打开的图表窗口（单例模式）
+        private static WebChartWindow _currentChartWindow = null;
+
         /// <summary>
-        /// 打开股票图表窗口（传入实时缓存以支持盘中数据）
+        /// 打开股票图表窗口（单窗口模式：新窗口覆盖旧窗口）
         /// </summary>
         private void OpenStockChart(string stockCode)
         {
             try
             {
+                // 如果已有图表窗口打开，先关闭它
+                if (_currentChartWindow != null && _currentChartWindow.IsLoaded)
+                {
+                    _currentChartWindow.Close();
+                    _currentChartWindow = null;
+                }
+
+                // 创建新的图表窗口
                 var chartWindow = new WebChartWindow(stockCode, _sharedCache);
+                _currentChartWindow = chartWindow;
+                
+                // 窗口关闭时清空引用
+                chartWindow.Closed += (s, e) =>
+                {
+                    if (_currentChartWindow == chartWindow)
+                    {
+                        _currentChartWindow = null;
+                    }
+                };
+                
                 chartWindow.Show();
+                Console.WriteLine($"[单窗口模式] 已打开股票 {stockCode} 的图表窗口");
             }
             catch (Exception ex)
             {
@@ -351,6 +377,7 @@ namespace MQReceiver.Views
             {
                 // 显示日志面板
                 LogPanel.Visibility = Visibility.Visible;
+                ToggleLogButton.Content = "隐藏日志";  // 更新按钮文字
                 AppendLog("正在启动MQ服务...");
 
                 // 创建MQ服务包装器并设置共享缓存
@@ -491,6 +518,23 @@ namespace MQReceiver.Views
         {
             LogPanel.Visibility = Visibility.Collapsed;
         }
+        
+        /// <summary>
+        /// 切换日志面板显示/隐藏
+        /// </summary>
+        private void ToggleLogButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (LogPanel.Visibility == Visibility.Visible)
+            {
+                LogPanel.Visibility = Visibility.Collapsed;
+                ToggleLogButton.Content = "显示日志";
+            }
+            else
+            {
+                LogPanel.Visibility = Visibility.Visible;
+                ToggleLogButton.Content = "隐藏日志";
+            }
+        }
 
         #endregion
 
@@ -520,6 +564,7 @@ namespace MQReceiver.Views
             {
                 // 显示日志面板
                 LogPanel.Visibility = Visibility.Visible;
+                ToggleLogButton.Content = "隐藏日志";  // 更新按钮文字
 
                 // 如果缓存为空，提示将从数据库加载
                 if (_sharedCache == null || _sharedCache.Count == 0)
@@ -532,6 +577,9 @@ namespace MQReceiver.Views
                 // 创建过滤服务并设置共享缓存
                 _filterService = new FilterService();
                 _filterService.SetExternalCache(_sharedCache);
+                
+                // 订阅日志事件
+                _filterService.LogMessage += (msg) => Dispatcher.Invoke(() => AppendLog(msg));
 
                 // 订阅过滤完成事件
                 _filterService.FilterCompleted += OnFilterCompleted;
@@ -594,6 +642,7 @@ namespace MQReceiver.Views
                 {
                     AppendLog("正在停止过滤服务...");
                     _filterService.FilterCompleted -= OnFilterCompleted;
+                    _filterService.LogMessage -= null;  // 取消订阅日志事件
                     _filterService.Stop();
                     _filterService.Dispose();
                     _filterService = null;

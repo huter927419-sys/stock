@@ -110,6 +110,128 @@ namespace MQReceiver.Calculators
         }
 
         /// <summary>
+        /// 批量计算前复权价格（性能优化版本）
+        /// 一次性计算整个股票的所有日期的前复权价格
+        /// </summary>
+        /// <param name="stockCode">股票代码</param>
+        /// <param name="priceData">日期 -> 原始价格的字典</param>
+        /// <returns>日期 -> 前复权价格的字典</returns>
+        public Dictionary<DateTime, decimal> BatchCalculateForwardAdjustedPrices(string stockCode, Dictionary<DateTime, decimal> priceData)
+        {
+            var result = new Dictionary<DateTime, decimal>();
+            if (priceData == null || priceData.Count == 0)
+                return result;
+
+            // 获取除权数据
+            var allExRights = GetExRightsDataCached(stockCode);
+            
+            // 如果没有除权数据，直接返回原始价格
+            if (allExRights.Count == 0)
+            {
+                return new Dictionary<DateTime, decimal>(priceData);
+            }
+
+            // 为每个日期计算前复权价格
+            foreach (var kvp in priceData)
+            {
+                DateTime targetDate = kvp.Key;
+                decimal originalPrice = kvp.Value;
+                
+                // 筛选该日期之后的除权事件
+                var exRightsList = allExRights.Where(x => x.ExRightsDate > targetDate).ToList();
+                
+                decimal adjustedPrice = originalPrice;
+                
+                // 从最新日期向前计算
+                foreach (var exRights in exRightsList.OrderByDescending(x => x.ExRightsDate))
+                {
+                    adjustedPrice = AdjustPriceForward(adjustedPrice, exRights);
+                }
+                
+                result[targetDate] = adjustedPrice;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 批量计算OHLC前复权价格（超级优化版本）
+        /// 一次性计算所有Open/High/Low/Close的前复权价格
+        /// </summary>
+        public Dictionary<DateTime, (decimal Open, decimal High, decimal Low, decimal Close)> BatchCalculateOHLCAdjustedPrices(
+            string stockCode, 
+            Dictionary<DateTime, (decimal Open, decimal High, decimal Low, decimal Close)> ohlcData)
+        {
+            var result = new Dictionary<DateTime, (decimal, decimal, decimal, decimal)>();
+            if (ohlcData == null || ohlcData.Count == 0)
+                return result;
+
+            // 获取除权数据
+            var allExRights = GetExRightsDataCached(stockCode);
+            
+            // 如果没有除权数据，直接返回原始价格（快速路径）
+            if (allExRights.Count == 0)
+            {
+                // 性能优化：移除调试日志
+                return new Dictionary<DateTime, (decimal, decimal, decimal, decimal)>(ohlcData);
+            }
+            
+            // 性能优化：移除调试日志（仅在需要时启用）
+            // 如需调试，可以取消下面的注释
+            /*
+            var exRightsInRange = allExRights.Where(x => 
+                ohlcData.Keys.Any(d => d <= x.ExRightsDate && x.ExRightsDate <= ohlcData.Keys.Max())
+            ).ToList();
+            if (exRightsInRange.Count > 0)
+            {
+                Console.WriteLine($"[前复权调试] {stockCode}: 找到 {allExRights.Count} 条除权数据，其中 {exRightsInRange.Count} 条在数据范围内");
+            }
+            */
+
+            // 性能优化：预先按日期降序排序除权数据（只排序一次）
+            var sortedExRights = allExRights.OrderByDescending(x => x.ExRightsDate).ToList();
+            
+            // 性能优化：按日期排序K线数据，从旧到新处理
+            var sortedOhlc = ohlcData.OrderBy(x => x.Key).ToList();
+            
+            // 为每个日期计算前复权OHLC
+            foreach (var kvp in sortedOhlc)
+            {
+                DateTime targetDate = kvp.Key;
+                var ohlc = kvp.Value;
+                
+                // 快速路径：如果最早的除权日期还在目标日期之前，说明没有除权影响
+                if (sortedExRights.Count > 0 && sortedExRights[sortedExRights.Count - 1].ExRightsDate <= targetDate)
+                {
+                    result[targetDate] = ohlc;
+                    continue;
+                }
+                
+                // 一次性计算4个价格的复权值
+                decimal adjOpen = ohlc.Open;
+                decimal adjHigh = ohlc.High;
+                decimal adjLow = ohlc.Low;
+                decimal adjClose = ohlc.Close;
+                
+                // 从最新日期向前计算（只遍历该日期之后的除权事件）
+                foreach (var exRights in sortedExRights)
+                {
+                    if (exRights.ExRightsDate <= targetDate)
+                        break; // 已经到了该日期之前的除权，停止遍历
+                    
+                    adjOpen = AdjustPriceForward(adjOpen, exRights);
+                    adjHigh = AdjustPriceForward(adjHigh, exRights);
+                    adjLow = AdjustPriceForward(adjLow, exRights);
+                    adjClose = AdjustPriceForward(adjClose, exRights);
+                }
+                
+                result[targetDate] = (adjOpen, adjHigh, adjLow, adjClose);
+            }
+
+            return result;
+        }
+
+        /// <summary>
         /// 计算后复权价格（以最早价格为基准，向后调整历史价格）
         /// 适用于：查看历史真实价格
         /// </summary>

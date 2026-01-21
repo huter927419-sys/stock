@@ -3,7 +3,11 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Media;
+using MQReceiver.Cache;
 using MQReceiver.Models;
 
 namespace MQReceiver.ViewModels
@@ -23,6 +27,9 @@ namespace MQReceiver.ViewModels
         private ObservableCollection<StockResultItem> _table8Results;
         private DateTime _lastUpdateTime;
         private static readonly Configuration.IConfigurationProvider _configProvider = Configuration.AppConfigProvider.Instance;
+        
+        // 实时数据缓存（用于响应数据推送更新涨幅）
+        private RealTimeDataCache _realTimeCache;
 
         // 表格1-6的默认最小值
         private decimal _table1WeeklyKDefaultMin = 0;
@@ -71,6 +78,7 @@ namespace MQReceiver.ViewModels
         private decimal _globalM1 = 78;
         private decimal _globalM2 = 65;
         private decimal _globalM3 = 50;
+        private decimal _globalM4 = 30;
 
         public FilterMainViewModel()
         {
@@ -86,6 +94,120 @@ namespace MQReceiver.ViewModels
 
             // 从配置文件加载默认值
             LoadDefaultValuesFromConfig();
+        }
+        
+        /// <summary>
+        /// 设置实时数据缓存（用于响应数据推送更新涨幅）
+        /// </summary>
+        public void SetRealTimeCache(RealTimeDataCache cache)
+        {
+            // 取消之前的订阅
+            if (_realTimeCache != null)
+            {
+                _realTimeCache.DataUpdated -= OnRealTimeDataUpdated;
+            }
+            
+            _realTimeCache = cache;
+            
+            // 订阅新的数据更新事件
+            if (_realTimeCache != null)
+            {
+                _realTimeCache.DataUpdated += OnRealTimeDataUpdated;
+            }
+        }
+        
+        /// <summary>
+        /// 当实时数据更新时，更新对应股票的涨幅
+        /// </summary>
+        private void OnRealTimeDataUpdated(object sender, List<string> updatedStockCodes)
+        {
+            if (updatedStockCodes == null || updatedStockCodes.Count == 0 || _realTimeCache == null)
+                return;
+            
+            // 在UI线程异步更新，避免阻塞MQ数据接收
+            Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    // 更新所有表格中对应股票的涨幅
+                    UpdatePriceChangeForStockCodes(_table1Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table2Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table3Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table4Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table5Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table6Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table7Results, updatedStockCodes);
+                    UpdatePriceChangeForStockCodes(_table8Results, updatedStockCodes);
+                }
+                catch (Exception ex)
+                {
+                    // 静默处理错误，避免影响主流程
+                    System.Diagnostics.Debug.WriteLine($"[更新涨幅] 错误: {ex.Message}");
+                }
+            }));
+        }
+        
+        /// <summary>
+        /// 更新指定股票代码列表的涨幅数据
+        /// </summary>
+        private void UpdatePriceChangeForStockCodes(ObservableCollection<StockResultItem> collection, List<string> stockCodes)
+        {
+            if (collection == null || stockCodes == null || stockCodes.Count == 0 || _realTimeCache == null)
+                return;
+            
+            // 使用HashSet提高查找效率
+            var stockCodeSet = new HashSet<string>(stockCodes);
+            
+            foreach (var item in collection)
+            {
+                if (string.IsNullOrEmpty(item.StockCode) || !stockCodeSet.Contains(item.StockCode))
+                    continue;
+                
+                // 从实时缓存获取最新数据
+                var realTimeData = _realTimeCache.GetData(item.StockCode);
+                if (realTimeData != null)
+                {
+                    // 计算新的涨幅
+                    decimal? newPriceChange = CalculatePriceChangePercent(realTimeData);
+                    
+                    // 如果涨幅有变化，更新并通知UI
+                    if (newPriceChange != item.PriceChangePercent)
+                    {
+                        item.PriceChangePercent = newPriceChange;
+                        item.PriceChangeColor = GetPriceChangeColor(newPriceChange);
+                        // PriceChangeDisplay 是计算属性，会自动更新
+                    }
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 计算涨幅百分比（与 UnifiedStockFilter 逻辑一致）
+        /// </summary>
+        private decimal? CalculatePriceChangePercent(RealTimeDataRecord realTimeData)
+        {
+            try
+            {
+                if (realTimeData == null)
+                    return null;
+
+                decimal newPrice = realTimeData.NewPrice;
+                decimal lastClose = realTimeData.LastClose;
+
+                // 检查数据有效性
+                if (lastClose <= 0 || newPrice <= 0)
+                    return null;
+
+                // 计算涨幅百分比（保留2位小数）
+                decimal priceChange = newPrice - lastClose;
+                decimal priceChangePercent = (priceChange / lastClose) * 100;
+
+                return Math.Round(priceChangePercent, 2);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -125,10 +247,11 @@ namespace MQReceiver.ViewModels
                 _table6MonthlyKDefaultMin = _configProvider.GetDecimal("Filter6_MonthlyKDefaultMin", 0);
                 _table6QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter6_QuarterlyKDefaultMin", 0);
 
-                // 加载全局M1/M2/M3阈值
+                // 加载全局M1/M2/M3/M4阈值
                 _globalM1 = _configProvider.GetDecimal("GlobalThreshold_M1", 78m);
                 _globalM2 = _configProvider.GetDecimal("GlobalThreshold_M2", 65m);
                 _globalM3 = _configProvider.GetDecimal("GlobalThreshold_M3", 50m);
+                _globalM4 = _configProvider.GetDecimal("GlobalThreshold_M4", 30m);
             }
             catch
             {
@@ -664,7 +787,7 @@ namespace MQReceiver.ViewModels
         public string Table5SettingsDisplay => $"周K({_table5WeeklyKDefaultMin}), 月K({_table5MonthlyKDefaultMin}), 季K({_table5QuarterlyKDefaultMin})";
         public string Table6SettingsDisplay => $"周K({_table6WeeklyKDefaultMin}), 月K({_table6MonthlyKDefaultMin}), 季K({_table6QuarterlyKDefaultMin})";
 
-        // 全局M1/M2/M3阈值属性（所有8个表格共用）
+        // 全局M1/M2/M3/M4阈值属性（所有6个表格共用）
         public decimal GlobalM1
         {
             get { return _globalM1; }
@@ -710,8 +833,23 @@ namespace MQReceiver.ViewModels
             }
         }
 
+        public decimal GlobalM4
+        {
+            get { return _globalM4; }
+            set
+            {
+                if (_globalM4 != value)
+                {
+                    _globalM4 = value;
+                    _configProvider.SetDecimal("GlobalThreshold_M4", value);
+                    OnPropertyChanged(nameof(GlobalM4));
+                    OnPropertyChanged(nameof(GlobalThresholdDisplay));
+                }
+            }
+        }
+
         // 全局阈值显示文本
-        public string GlobalThresholdDisplay => $"M1({_globalM1}), M2({_globalM2}), M3({_globalM3})";
+        public string GlobalThresholdDisplay => $"M1({_globalM1}), M2({_globalM2}), M3({_globalM3}), M4({_globalM4})";
 
         /// <summary>
         /// 刷新过滤结果（当默认最小值改变时调用）
@@ -964,24 +1102,114 @@ namespace MQReceiver.ViewModels
 
             // 清理事件订阅
             PropertyChanged = null;
+            
+            // 取消实时数据缓存订阅
+            if (_realTimeCache != null)
+            {
+                _realTimeCache.DataUpdated -= OnRealTimeDataUpdated;
+                _realTimeCache = null;
+            }
         }
     }
 
     /// <summary>
     /// 股票结果显示项
     /// </summary>
-    public class StockResultItem
+    public class StockResultItem : INotifyPropertyChanged
     {
-        public string StockCode { get; set; }
-        public string StockName { get; set; }
-        public decimal? PriceChangePercent { get; set; }  // 涨幅百分比
-        public decimal WeeklyK { get; set; }
-        public decimal MonthlyK { get; set; }
-        public decimal QuarterlyK { get; set; }
-        public Brush WeeklyKColor { get; set; }
-        public Brush MonthlyKColor { get; set; }
-        public Brush QuarterlyKColor { get; set; }
-        public Brush PriceChangeColor { get; set; }  // 涨幅颜色
-        public string PriceChangeDisplay => PriceChangePercent.HasValue ? $"{PriceChangePercent.Value:F2}%" : "--";  // 涨幅显示文本
+        private string _stockCode;
+        private string _stockName;
+        private decimal? _priceChangePercent;
+        private decimal _weeklyK;
+        private decimal _monthlyK;
+        private decimal _quarterlyK;
+        private Brush _weeklyKColor;
+        private Brush _monthlyKColor;
+        private Brush _quarterlyKColor;
+        private Brush _priceChangeColor;
+
+        public string StockCode
+        {
+            get => _stockCode;
+            set { _stockCode = value; OnPropertyChanged(nameof(StockCode)); }
+        }
+
+        public string StockName
+        {
+            get => _stockName;
+            set { _stockName = value; OnPropertyChanged(nameof(StockName)); }
+        }
+
+        public decimal? PriceChangePercent
+        {
+            get => _priceChangePercent;
+            set
+            {
+                if (_priceChangePercent != value)
+                {
+                    _priceChangePercent = value;
+                    OnPropertyChanged(nameof(PriceChangePercent));
+                    OnPropertyChanged(nameof(PriceChangeDisplay)); // 同时通知显示文本更新
+                }
+            }
+        }
+
+        public decimal WeeklyK
+        {
+            get => _weeklyK;
+            set { _weeklyK = value; OnPropertyChanged(nameof(WeeklyK)); }
+        }
+
+        public decimal MonthlyK
+        {
+            get => _monthlyK;
+            set { _monthlyK = value; OnPropertyChanged(nameof(MonthlyK)); }
+        }
+
+        public decimal QuarterlyK
+        {
+            get => _quarterlyK;
+            set { _quarterlyK = value; OnPropertyChanged(nameof(QuarterlyK)); }
+        }
+
+        public Brush WeeklyKColor
+        {
+            get => _weeklyKColor;
+            set { _weeklyKColor = value; OnPropertyChanged(nameof(WeeklyKColor)); }
+        }
+
+        public Brush MonthlyKColor
+        {
+            get => _monthlyKColor;
+            set { _monthlyKColor = value; OnPropertyChanged(nameof(MonthlyKColor)); }
+        }
+
+        public Brush QuarterlyKColor
+        {
+            get => _quarterlyKColor;
+            set { _quarterlyKColor = value; OnPropertyChanged(nameof(QuarterlyKColor)); }
+        }
+
+        public Brush PriceChangeColor
+        {
+            get => _priceChangeColor;
+            set
+            {
+                if (_priceChangeColor != value)
+                {
+                    _priceChangeColor = value;
+                    OnPropertyChanged(nameof(PriceChangeColor));
+                }
+            }
+        }
+
+        public string PriceChangeDisplay => PriceChangePercent.HasValue ? $"{PriceChangePercent.Value:F2}%" : "--";  // 涨幅显示文本（2位小数）
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 }
