@@ -1,13 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Newtonsoft.Json;
 using MQReceiver.Cache;
+using MQReceiver.Configuration;
 using MQReceiver.Models;
 using MQReceiver.Services;
 
@@ -19,6 +23,8 @@ namespace MQReceiver.Views
         private bool _isWebViewInitialized = false;
         private string _stockCode;
         private RealTimeDataCache _realTimeCache;
+        private DispatcherTimer _saveBoundsDebounce;
+        private EventHandler _onLeftOrTopChangedHandler;
 
         public WebChartWindow(string stockCode) : this(stockCode, null)
         {
@@ -27,6 +33,7 @@ namespace MQReceiver.Views
         public WebChartWindow(string stockCode, RealTimeDataCache realTimeCache)
         {
             InitializeComponent();
+            RestoreWindowBounds();
             _stockCode = stockCode;
             _realTimeCache = realTimeCache;
             
@@ -54,15 +61,146 @@ namespace MQReceiver.Views
                 Console.WriteLine($"[图表数据加载] ❌ 数据加载失败");
             }
             Console.WriteLine($"═══════════════════════════════════════════════════════");
+            InitializeBoundsPersistence();
         }
 
         public WebChartWindow(ChartData chartData)
         {
             InitializeComponent();
+            RestoreWindowBounds();
             _chartData = chartData;
             if (chartData != null)
             {
                 this.Title = $"股票图表 - {chartData.StockName} ({chartData.StockCode})";
+            }
+            InitializeBoundsPersistence();
+        }
+
+        /// <summary>
+        /// 从配置恢复K线图窗口位置和大小，支持多屏。
+        /// 严格校验：仅当保存的 (Left,Top) 落在当前某块显示器的 Bounds 内才恢复，否则使用默认居中。
+        /// </summary>
+        private void RestoreWindowBounds()
+        {
+            try
+            {
+                var cfg = AppConfigProvider.Instance;
+                string sl = cfg.GetString("ChartWindow_Left");
+                string st = cfg.GetString("ChartWindow_Top");
+                string sw = cfg.GetString("ChartWindow_Width");
+                string sh = cfg.GetString("ChartWindow_Height");
+                if (string.IsNullOrEmpty(sl) || string.IsNullOrEmpty(st) || string.IsNullOrEmpty(sw) || string.IsNullOrEmpty(sh))
+                    return;
+                if (!double.TryParse(sl, NumberStyles.Float, CultureInfo.InvariantCulture, out double left) ||
+                    !double.TryParse(st, NumberStyles.Float, CultureInfo.InvariantCulture, out double top) ||
+                    !double.TryParse(sw, NumberStyles.Float, CultureInfo.InvariantCulture, out double width) ||
+                    !double.TryParse(sh, NumberStyles.Float, CultureInfo.InvariantCulture, out double height))
+                    return;
+                if (width < 300 || width > 4000 || height < 300 || height > 4000)
+                    return;
+                // 严格多屏：仅当 (left, top) 落在当前某块屏幕内才恢复；否则退回到主屏居中
+                if (!IsPointOnAnyScreen(left, top))
+                {
+                    ApplyPrimaryScreenPlacement(width, height);
+                    return;
+                }
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = left;
+                Top = top;
+                Width = width;
+                Height = height;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WebChartWindow] RestoreWindowBounds: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 判断点 (x,y) 是否落在当前任意一块显示器的 Bounds 内（支持多屏、负坐标及副屏）。
+        /// 使用 System.Windows.Forms.Screen，与 WPF 窗口坐标同属系统虚拟屏坐标系。
+        /// </summary>
+        private static bool IsPointOnAnyScreen(double x, double y)
+        {
+            try
+            {
+                foreach (var s in System.Windows.Forms.Screen.AllScreens)
+                {
+                    var b = s.Bounds;
+                    var r = new Rect(b.X, b.Y, b.Width, b.Height);
+                    if (r.Contains(x, y))
+                        return true;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 当保存的位置已不在任意屏幕时（如断开了该显示器），将窗口放到主屏工作区居中。
+        /// 宽高限制在主屏 WorkingArea 内，避免超出可见范围。
+        /// </summary>
+        private void ApplyPrimaryScreenPlacement(double width, double height)
+        {
+            try
+            {
+                var primary = System.Windows.Forms.Screen.PrimaryScreen;
+                if (primary == null) return;
+                var wa = primary.WorkingArea;
+                double w = Math.Min(Math.Max(300, width), wa.Width);
+                double h = Math.Min(Math.Max(300, height), wa.Height);
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = wa.X + (wa.Width - w) / 2;
+                Top = wa.Y + (wa.Height - h) / 2;
+                Width = w;
+                Height = h;
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// 初始化窗口位置/大小的持久化：防抖保存到配置。移动或 resize 后不等关闭即写入，
+        /// 新开的 K 线图会出现在上次放置的屏幕（含附加屏）。
+        /// </summary>
+        private void InitializeBoundsPersistence()
+        {
+            _saveBoundsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            _saveBoundsDebounce.Tick += (s, ev) =>
+            {
+                _saveBoundsDebounce.Stop();
+                SaveWindowBoundsToConfig();
+            };
+            _onLeftOrTopChangedHandler = (s, ev) => ScheduleSaveWindowBounds();
+            DependencyPropertyDescriptor.FromProperty(Window.LeftProperty, typeof(Window)).AddValueChanged(this, _onLeftOrTopChangedHandler);
+            DependencyPropertyDescriptor.FromProperty(Window.TopProperty, typeof(Window)).AddValueChanged(this, _onLeftOrTopChangedHandler);
+        }
+
+        private void ScheduleSaveWindowBounds()
+        {
+            _saveBoundsDebounce?.Stop();
+            _saveBoundsDebounce?.Start();
+        }
+
+        /// <summary>
+        /// 将当前窗口位置和大小写入 ChartWindow_Left/Top/Width/Height。最大化时使用 RestoreBounds。
+        /// </summary>
+        private void SaveWindowBoundsToConfig()
+        {
+            try
+            {
+                var r = WindowState == WindowState.Maximized ? RestoreBounds : new Rect(Left, Top, Width, Height);
+                var cfg = AppConfigProvider.Instance;
+                cfg.SetValue("ChartWindow_Left", r.Left.ToString(CultureInfo.InvariantCulture));
+                cfg.SetValue("ChartWindow_Top", r.Top.ToString(CultureInfo.InvariantCulture));
+                cfg.SetValue("ChartWindow_Width", r.Width.ToString(CultureInfo.InvariantCulture));
+                cfg.SetValue("ChartWindow_Height", r.Height.ToString(CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WebChartWindow] SaveWindowBoundsToConfig: {ex.Message}");
             }
         }
 
@@ -143,6 +281,25 @@ namespace MQReceiver.Views
         {
             try
             {
+                // 确保窗口在正确的屏幕上最大化
+                // 窗口位置已在 RestoreWindowBounds() 中设置，现在最大化到该屏幕
+                if (WindowState != WindowState.Maximized)
+                {
+                    Console.WriteLine($"[WebChartWindow] Window_Loaded: 窗口位置 Left={Left}, Top={Top}, Width={Width}, Height={Height}");
+                    var screen = System.Windows.Forms.Screen.FromPoint(
+                        new System.Drawing.Point((int)(Left + Width / 2), (int)(Top + Height / 2)));
+                    if (screen != null)
+                    {
+                        Console.WriteLine($"[WebChartWindow] Window_Loaded: 窗口中心位于屏幕 {screen.DeviceName}, Bounds={screen.Bounds}");
+                        Console.WriteLine($"[WebChartWindow] Window_Loaded: 设置窗口为最大化状态");
+                        WindowState = WindowState.Maximized;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[WebChartWindow] Window_Loaded: 无法确定屏幕，使用默认最大化");
+                        WindowState = WindowState.Maximized;
+                    }
+                }
                 await InitializeWebView();
             }
             catch (Exception ex)
@@ -555,16 +712,21 @@ namespace MQReceiver.Views
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            // 清理WebView2资源
-            if (webView != null)
+            _saveBoundsDebounce?.Stop();
+            try
             {
-                webView.Dispose();
+                DependencyPropertyDescriptor.FromProperty(Window.LeftProperty, typeof(Window)).RemoveValueChanged(this, _onLeftOrTopChangedHandler);
+                DependencyPropertyDescriptor.FromProperty(Window.TopProperty, typeof(Window)).RemoveValueChanged(this, _onLeftOrTopChangedHandler);
             }
+            catch { }
+            SaveWindowBoundsToConfig();
+            if (webView != null)
+                webView.Dispose();
         }
 
         private async void Window_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            // 当WPF窗口大小改变时，通知WebView2内的图表重新调整大小
+            ScheduleSaveWindowBounds();
             if (_isWebViewInitialized && webView?.CoreWebView2 != null)
             {
                 try
