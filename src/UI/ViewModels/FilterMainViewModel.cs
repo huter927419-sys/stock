@@ -30,6 +30,12 @@ namespace MQReceiver.ViewModels
         
         // 实时数据缓存（用于响应数据推送更新涨幅）
         private RealTimeDataCache _realTimeCache;
+        
+        // 节流机制：合并短时间内的多次更新，避免UI卡顿
+        private readonly HashSet<string> _pendingUpdateStockCodes = new HashSet<string>();
+        private readonly object _pendingUpdateLock = new object();
+        private System.Threading.Timer _updateThrottleTimer;
+        private const int THROTTLE_INTERVAL_MS = 100; // 100ms内合并所有更新
 
         // 表格1-6的默认最小值
         private decimal _table1WeeklyKDefaultMin = 0;
@@ -74,11 +80,13 @@ namespace MQReceiver.ViewModels
         private bool _table6MonthlyKSelected = false;
         private bool _table6QuarterlyKSelected = false;
 
-        // 全局M1/M2/M3阈值（所有8个表格共用）
+        // 全局M1/M2/M3/M4/N阈值（所有6个表格共用）
         private decimal _globalM1 = 78;
         private decimal _globalM2 = 65;
         private decimal _globalM3 = 50;
         private decimal _globalM4 = 30;
+        private int _globalN = 5;
+        private decimal _priceChangeFilterThreshold = 7; // 涨幅计算阈值，默认7%
 
         public FilterMainViewModel()
         {
@@ -117,55 +125,109 @@ namespace MQReceiver.ViewModels
         }
         
         /// <summary>
-        /// 当实时数据更新时，更新对应股票的涨幅
+        /// 当实时数据更新时，更新对应股票的涨幅（带节流机制）
         /// </summary>
         private void OnRealTimeDataUpdated(object sender, List<string> updatedStockCodes)
         {
             if (updatedStockCodes == null || updatedStockCodes.Count == 0 || _realTimeCache == null)
                 return;
             
+            // 将需要更新的股票代码加入待更新集合（线程安全）
+            lock (_pendingUpdateLock)
+            {
+                foreach (var code in updatedStockCodes)
+                {
+                    if (!string.IsNullOrEmpty(code))
+                        _pendingUpdateStockCodes.Add(code);
+                }
+            }
+            
+            // 重置节流定时器：如果100ms内没有新的更新，才真正执行UI更新
+            if (_updateThrottleTimer == null)
+            {
+                _updateThrottleTimer = new System.Threading.Timer(OnThrottleTimerElapsed, null, THROTTLE_INTERVAL_MS, Timeout.Infinite);
+            }
+            else
+            {
+                _updateThrottleTimer.Change(THROTTLE_INTERVAL_MS, Timeout.Infinite);
+            }
+        }
+        
+        /// <summary>
+        /// 节流定时器回调：执行批量更新
+        /// </summary>
+        private void OnThrottleTimerElapsed(object state)
+        {
+            List<string> stockCodesToUpdate;
+            
+            // 取出所有待更新的股票代码并清空集合
+            lock (_pendingUpdateLock)
+            {
+                if (_pendingUpdateStockCodes.Count == 0)
+                    return;
+                    
+                stockCodesToUpdate = new List<string>(_pendingUpdateStockCodes);
+                _pendingUpdateStockCodes.Clear();
+            }
+            
             // 在UI线程异步更新，避免阻塞MQ数据接收
             Application.Current?.Dispatcher.BeginInvoke(new Action(() =>
             {
                 try
                 {
-                    // 更新所有表格中对应股票的涨幅
-                    UpdatePriceChangeForStockCodes(_table1Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table2Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table3Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table4Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table5Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table6Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table7Results, updatedStockCodes);
-                    UpdatePriceChangeForStockCodes(_table8Results, updatedStockCodes);
+                    // 批量更新所有表格中对应股票的涨幅
+                    bool hasChanges1 = UpdatePriceChangeForStockCodes(_table1Results, stockCodesToUpdate);
+                    bool hasChanges2 = UpdatePriceChangeForStockCodes(_table2Results, stockCodesToUpdate);
+                    bool hasChanges3 = UpdatePriceChangeForStockCodes(_table3Results, stockCodesToUpdate);
+                    bool hasChanges4 = UpdatePriceChangeForStockCodes(_table4Results, stockCodesToUpdate);
+                    bool hasChanges5 = UpdatePriceChangeForStockCodes(_table5Results, stockCodesToUpdate);
+                    bool hasChanges6 = UpdatePriceChangeForStockCodes(_table6Results, stockCodesToUpdate);
+                    bool hasChanges7 = UpdatePriceChangeForStockCodes(_table7Results, stockCodesToUpdate);
+                    bool hasChanges8 = UpdatePriceChangeForStockCodes(_table8Results, stockCodesToUpdate);
+                    
+                    // 如果有涨幅变化，重新排序（按涨幅从高到低）
+                    if (hasChanges1) SortByPriceChange(_table1Results);
+                    if (hasChanges2) SortByPriceChange(_table2Results);
+                    if (hasChanges3) SortByPriceChange(_table3Results);
+                    if (hasChanges4) SortByPriceChange(_table4Results);
+                    if (hasChanges5) SortByPriceChange(_table5Results);
+                    if (hasChanges6) SortByPriceChange(_table6Results);
+                    if (hasChanges7) SortByPriceChange(_table7Results);
+                    if (hasChanges8) SortByPriceChange(_table8Results);
                 }
                 catch (Exception ex)
                 {
                     // 静默处理错误，避免影响主流程
                     System.Diagnostics.Debug.WriteLine($"[更新涨幅] 错误: {ex.Message}");
                 }
-            }));
+            }), System.Windows.Threading.DispatcherPriority.Background); // 使用Background优先级，降低对用户交互的影响
         }
         
         /// <summary>
-        /// 更新指定股票代码列表的涨幅数据
+        /// 更新指定股票代码列表的涨幅数据（优化：使用字典索引快速查找）
         /// </summary>
-        private void UpdatePriceChangeForStockCodes(ObservableCollection<StockResultItem> collection, List<string> stockCodes)
+        /// <returns>是否有涨幅变化</returns>
+        private bool UpdatePriceChangeForStockCodes(ObservableCollection<StockResultItem> collection, List<string> stockCodes)
         {
             if (collection == null || stockCodes == null || stockCodes.Count == 0 || _realTimeCache == null)
-                return;
+                return false;
             
             // 使用HashSet提高查找效率
-            var stockCodeSet = new HashSet<string>(stockCodes);
+            var stockCodeSet = new HashSet<string>(stockCodes, StringComparer.Ordinal);
             
+            // 批量获取实时数据，减少字典查找次数
+            var realTimeDataDict = _realTimeCache.GetDataBatch(stockCodes);
+            
+            bool hasChanges = false;
+            
+            // 遍历集合，只更新在stockCodeSet中的股票
             foreach (var item in collection)
             {
                 if (string.IsNullOrEmpty(item.StockCode) || !stockCodeSet.Contains(item.StockCode))
                     continue;
                 
-                // 从实时缓存获取最新数据
-                var realTimeData = _realTimeCache.GetData(item.StockCode);
-                if (realTimeData != null)
+                // 从批量获取的字典中查找数据
+                if (realTimeDataDict.TryGetValue(item.StockCode, out var realTimeData) && realTimeData != null)
                 {
                     // 计算新的涨幅
                     decimal? newPriceChange = CalculatePriceChangePercent(realTimeData);
@@ -175,9 +237,45 @@ namespace MQReceiver.ViewModels
                     {
                         item.PriceChangePercent = newPriceChange;
                         item.PriceChangeColor = GetPriceChangeColor(newPriceChange);
+                        hasChanges = true;
                         // PriceChangeDisplay 是计算属性，会自动更新
                     }
                 }
+            }
+            
+            return hasChanges;
+        }
+        
+        /// <summary>
+        /// 重新按涨幅排序集合（涨幅从高到低，涨幅缺失的排到末尾）
+        /// </summary>
+        private void SortByPriceChange(ObservableCollection<StockResultItem> collection)
+        {
+            if (collection == null || collection.Count <= 1)
+                return;
+            
+            // 转换为List并排序
+            var sortedList = collection.OrderByDescending(item => item.PriceChangePercent ?? decimal.MinValue).ToList();
+            
+            // 检查顺序是否真的改变了（避免不必要的UI刷新）
+            bool orderChanged = false;
+            for (int i = 0; i < sortedList.Count; i++)
+            {
+                if (!ReferenceEquals(collection[i], sortedList[i]))
+                {
+                    orderChanged = true;
+                    break;
+                }
+            }
+            
+            if (!orderChanged)
+                return;
+            
+            // 重新填充集合（保持ObservableCollection的变更通知）
+            collection.Clear();
+            foreach (var item in sortedList)
+            {
+                collection.Add(item);
             }
         }
         
@@ -247,11 +345,13 @@ namespace MQReceiver.ViewModels
                 _table6MonthlyKDefaultMin = _configProvider.GetDecimal("Filter6_MonthlyKDefaultMin", 0);
                 _table6QuarterlyKDefaultMin = _configProvider.GetDecimal("Filter6_QuarterlyKDefaultMin", 0);
 
-                // 加载全局M1/M2/M3/M4阈值
+                // 加载全局M1/M2/M3阈值
                 _globalM1 = _configProvider.GetDecimal("GlobalThreshold_M1", 78m);
                 _globalM2 = _configProvider.GetDecimal("GlobalThreshold_M2", 65m);
                 _globalM3 = _configProvider.GetDecimal("GlobalThreshold_M3", 50m);
                 _globalM4 = _configProvider.GetDecimal("GlobalThreshold_M4", 30m);
+                _globalN = _configProvider.GetInt("GlobalThreshold_N", 5);
+                _priceChangeFilterThreshold = _configProvider.GetDecimal("PriceChangeFilterThreshold", 7m);
             }
             catch
             {
@@ -367,7 +467,7 @@ namespace MQReceiver.ViewModels
             }
         }
 
-        // 存储原始结果（用于过滤）
+        // 存储原始结果（用于计算）
         private List<FilterResultWithHistory> _originalTable1Results;
         private List<FilterResultWithHistory> _originalTable2Results;
         private List<FilterResultWithHistory> _originalTable3Results;
@@ -848,11 +948,45 @@ namespace MQReceiver.ViewModels
             }
         }
 
-        // 全局阈值显示文本
-        public string GlobalThresholdDisplay => $"M1({_globalM1}), M2({_globalM2}), M3({_globalM3}), M4({_globalM4})";
+        public int GlobalN
+        {
+            get { return _globalN; }
+            set
+            {
+                if (_globalN != value)
+                {
+                    _globalN = value;
+                    _configProvider.SetValue("GlobalThreshold_N", value.ToString());
+                    OnPropertyChanged(nameof(GlobalN));
+                    OnPropertyChanged(nameof(GlobalThresholdDisplay));
+                }
+            }
+        }
 
         /// <summary>
-        /// 刷新过滤结果（当默认最小值改变时调用）
+        /// 涨幅计算阈值（涨幅大于此百分比时不显示）
+        /// </summary>
+        public decimal PriceChangeFilterThreshold
+        {
+            get { return _priceChangeFilterThreshold; }
+            set
+            {
+                if (_priceChangeFilterThreshold != value)
+                {
+                    _priceChangeFilterThreshold = value;
+                    _configProvider.SetDecimal("PriceChangeFilterThreshold", value);
+                    OnPropertyChanged(nameof(PriceChangeFilterThreshold));
+                    // 阈值更改后，立即重新应用涨幅计算到所有表格
+                    ApplyPriceChangeFilterToAllTables();
+                }
+            }
+        }
+
+        // 全局阈值显示文本
+        public string GlobalThresholdDisplay => $"M1({_globalM1}), M2({_globalM2}), M3({_globalM3}), M4({_globalM4}), N({_globalN})";
+
+        /// <summary>
+        /// 刷新计算结果（当默认最小值改变时调用）
         /// </summary>
         public void RefreshFilteredResults()
         {
@@ -863,7 +997,16 @@ namespace MQReceiver.ViewModels
         }
 
         /// <summary>
-        /// 根据默认最小值过滤结果
+        /// 应用涨幅计算到所有表格（当涨幅计算阈值改变时调用）
+        /// </summary>
+        private void ApplyPriceChangeFilterToAllTables()
+        {
+            // 重新应用默认最小值计算（已包含涨幅计算）
+            RefreshFilteredResults();
+        }
+
+        /// <summary>
+        /// 根据默认最小值计算结果
         /// </summary>
         private void FilterResultsByDefaultMin(int tableNumber)
         {
@@ -922,7 +1065,9 @@ namespace MQReceiver.ViewModels
                 var filtered = originalResults.Where(r =>
                     r.WeeklyK >= weeklyMin &&
                     r.MonthlyK >= monthlyMin &&
-                    r.QuarterlyK >= quarterlyMin).ToList();
+                    r.QuarterlyK >= quarterlyMin &&
+                    // 应用涨幅计算：涨幅为空或涨幅<=阈值时保留
+                    (!r.PriceChangePercent.HasValue || r.PriceChangePercent.Value <= _priceChangeFilterThreshold)).ToList();
 
                 targetResults.Clear();
                 foreach (var item in filtered)
@@ -956,7 +1101,7 @@ namespace MQReceiver.ViewModels
             _originalTable7Results = results7;
             _originalTable8Results = results8;
 
-            // 更新各表格结果（新8个条件不需要默认最小值过滤，直接显示）
+            // 更新各表格结果（新8个条件不需要默认最小值计算，直接显示）
             UpdateTableResults(_table1Results, results1, 0, 0, 0);
             UpdateTableResults(_table2Results, results2, 0, 0, 0);
             UpdateTableResults(_table3Results, results3, 0, 0, 0);
@@ -985,18 +1130,30 @@ namespace MQReceiver.ViewModels
             decimal monthlyMin,
             decimal quarterlyMin)
         {
-            targetResults.Clear();
-            if (sourceResults != null)
+            if (sourceResults == null)
             {
-                var filtered = sourceResults.Where(r =>
-                    r.WeeklyK >= weeklyMin &&
-                    r.MonthlyK >= monthlyMin &&
-                    r.QuarterlyK >= quarterlyMin).ToList();
+                targetResults.Clear();
+                return;
+            }
+            
+            // 性能优化：移除重复排序（数据在 UnifiedStockFilter 中已经按涨幅排序）
+            // 应用涨幅计算：涨幅为空或涨幅<=阈值时保留
+            var filtered = sourceResults.Where(r =>
+                r.WeeklyK >= weeklyMin &&
+                r.MonthlyK >= monthlyMin &&
+                r.QuarterlyK >= quarterlyMin &&
+                (!r.PriceChangePercent.HasValue || r.PriceChangePercent.Value <= _priceChangeFilterThreshold))
+                .ToList();
 
-                foreach (var result in filtered)
-                {
-                    targetResults.Add(CreateStockResultItem(result));
-                }
+            // 性能优化：批量更新，减少UI刷新次数
+            // 先创建所有新项，然后一次性替换（避免多次触发UI更新）
+            var newItems = filtered.Select(r => CreateStockResultItem(r)).ToList();
+            
+            // 批量替换：先清空，然后批量添加
+            targetResults.Clear();
+            foreach (var item in newItems)
+            {
+                targetResults.Add(item);
             }
         }
 
@@ -1108,6 +1265,19 @@ namespace MQReceiver.ViewModels
             {
                 _realTimeCache.DataUpdated -= OnRealTimeDataUpdated;
                 _realTimeCache = null;
+            }
+            
+            // 释放节流定时器
+            if (_updateThrottleTimer != null)
+            {
+                _updateThrottleTimer.Dispose();
+                _updateThrottleTimer = null;
+            }
+            
+            // 清空待更新集合
+            lock (_pendingUpdateLock)
+            {
+                _pendingUpdateStockCodes.Clear();
             }
         }
     }

@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using MQReceiver.Cache;
+using MQReceiver.Configuration;
 using MQReceiver.Models;
 using MQReceiver.Services;
 using MQReceiver.ViewModels;
@@ -14,8 +18,8 @@ namespace MQReceiver.Views
 {
     /// <summary>
     /// FilterMainWindow.xaml 的交互逻辑
-    /// 主窗口，显示三个过滤条件的面板
-    /// 管理共享缓存，协调MQ服务和过滤服务
+    /// 主窗口，显示三个计算条件的面板
+    /// 管理共享缓存，协调数据服务和计算服务
     /// </summary>
     public partial class FilterMainWindow : Window
     {
@@ -25,6 +29,9 @@ namespace MQReceiver.Views
         private RealTimeDataCache _sharedCache;  // 共享缓存
         private bool _isMQRunning = false;
         private bool _isFilterRunning = false;
+        private System.Threading.Timer _columnWidthSaveTimer;  // 列宽保存延迟定时器
+        private readonly object _columnWidthSaveLock = new object();
+        private List<DependencyPropertyDescriptor> _columnWidthDescriptors = new List<DependencyPropertyDescriptor>();  // 保存列宽监听器，用于清理
 
         public FilterMainWindow()
         {
@@ -84,10 +91,26 @@ namespace MQReceiver.Views
         /// </summary>
         private void FilterMainWindow_Closed(object sender, EventArgs e)
         {
-            // 停止过滤服务
+            // 停止列宽保存定时器
+            lock (_columnWidthSaveLock)
+            {
+                if (_columnWidthSaveTimer != null)
+                {
+                    _columnWidthSaveTimer.Dispose();
+                    _columnWidthSaveTimer = null;
+                }
+            }
+
+            // 移除列宽改变事件监听
+            DetachColumnWidthChangeHandlers();
+
+            // 保存列宽和顺序（在窗口关闭时也保存一次，确保不丢失）
+            SavePanelTableColumns();
+
+            // 停止计算服务
             StopFilterService();
 
-            // 停止MQ服务
+            // 停止数据服务
             StopMQService();
 
             // 清理事件订阅
@@ -114,8 +137,225 @@ namespace MQReceiver.Views
             this.Closed -= FilterMainWindow_Closed;
         }
 
+        private void FilterMainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            RestorePanelTableColumns();
+            // 为所有DataGrid添加列宽改变事件监听
+            AttachColumnWidthChangeHandlers();
+        }
+
         /// <summary>
-        /// 更新过滤结果
+        /// 为所有DataGrid添加列宽改变事件监听
+        /// </summary>
+        private void AttachColumnWidthChangeHandlers()
+        {
+            var grids = new[] { DataGrid_Table1, DataGrid_Table2, DataGrid_Table3, DataGrid_Table4, DataGrid_Table5, DataGrid_Table6 };
+            foreach (var dg in grids)
+            {
+                if (dg == null) continue;
+                // 为每个列添加宽度属性变化监听
+                foreach (var col in dg.Columns.Cast<DataGridColumn>())
+                {
+                    var descriptor = DependencyPropertyDescriptor.FromProperty(DataGridColumn.WidthProperty, typeof(DataGridColumn));
+                    if (descriptor != null)
+                    {
+                        descriptor.AddValueChanged(col, Column_WidthPropertyChanged);
+                        _columnWidthDescriptors.Add(descriptor);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 移除所有列宽改变事件监听
+        /// </summary>
+        private void DetachColumnWidthChangeHandlers()
+        {
+            var grids = new[] { DataGrid_Table1, DataGrid_Table2, DataGrid_Table3, DataGrid_Table4, DataGrid_Table5, DataGrid_Table6 };
+            foreach (var dg in grids)
+            {
+                if (dg == null) continue;
+                foreach (var col in dg.Columns.Cast<DataGridColumn>())
+                {
+                    var descriptor = DependencyPropertyDescriptor.FromProperty(DataGridColumn.WidthProperty, typeof(DataGridColumn));
+                    if (descriptor != null)
+                    {
+                        descriptor.RemoveValueChanged(col, Column_WidthPropertyChanged);
+                    }
+                }
+            }
+            _columnWidthDescriptors.Clear();
+        }
+
+        /// <summary>
+        /// 列宽属性改变事件处理（延迟保存，避免频繁写入）
+        /// </summary>
+        private void Column_WidthPropertyChanged(object sender, EventArgs e)
+        {
+            lock (_columnWidthSaveLock)
+            {
+                // 如果定时器已存在，先停止
+                if (_columnWidthSaveTimer != null)
+                {
+                    _columnWidthSaveTimer.Dispose();
+                    _columnWidthSaveTimer = null;
+                }
+
+                // 创建新的延迟定时器（500ms后保存）
+                _columnWidthSaveTimer = new System.Threading.Timer(
+                    _ => 
+                    {
+                        lock (_columnWidthSaveLock)
+                        {
+                            try
+                            {
+                                // 在UI线程上执行保存
+                                Application.Current?.Dispatcher.Invoke(() =>
+                                {
+                                    SavePanelTableColumns();
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[Column_WidthPropertyChanged] 保存列宽失败: {ex.Message}");
+                            }
+                            finally
+                            {
+                                _columnWidthSaveTimer?.Dispose();
+                                _columnWidthSaveTimer = null;
+                            }
+                        }
+                    },
+                    null,
+                    500,  // 延迟500ms
+                    Timeout.Infinite
+                );
+            }
+        }
+
+        private void FilterMainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // 保存列宽和顺序
+            SavePanelTableColumns();
+            
+            // 保存M1/M2/M3/M4/N阈值和涨幅计算阈值（确保不丢失）
+            if (_viewModel != null)
+            {
+                var cfg = AppConfigProvider.Instance;
+                cfg.SetDecimal("GlobalThreshold_M1", _viewModel.GlobalM1);
+                cfg.SetDecimal("GlobalThreshold_M2", _viewModel.GlobalM2);
+                cfg.SetDecimal("GlobalThreshold_M3", _viewModel.GlobalM3);
+                cfg.SetDecimal("GlobalThreshold_M4", _viewModel.GlobalM4);
+                cfg.SetValue("GlobalThreshold_N", _viewModel.GlobalN.ToString());
+                cfg.SetDecimal("PriceChangeFilterThreshold", _viewModel.PriceChangeFilterThreshold);
+            }
+        }
+
+        /// <summary>
+        /// 从 App.config 恢复面板表格列顺序与列宽（名称、涨幅、周K、月K、季K）
+        /// </summary>
+        private void RestorePanelTableColumns()
+        {
+            try
+            {
+                var cfg = AppConfigProvider.Instance;
+                string orderStr = cfg.GetString("PanelTable_ColumnOrder");
+                if (string.IsNullOrEmpty(orderStr)) return;
+                var ids = orderStr.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+                if (ids.Length == 0) return;
+
+                var idToHeader = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "Name", "名称" }, { "PriceChange", "涨幅" }, { "WeeklyK", "周K" }, { "MonthlyK", "月K" }, { "QuarterlyK", "季K" }
+                };
+                var defaults = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "Name", 65 }, { "PriceChange", 48 }, { "WeeklyK", 42 }, { "MonthlyK", 42 }, { "QuarterlyK", 42 }
+                };
+
+                var grids = new[] { DataGrid_Table1, DataGrid_Table2, DataGrid_Table3, DataGrid_Table4, DataGrid_Table5, DataGrid_Table6 };
+                foreach (var dg in grids)
+                {
+                    if (dg?.Columns == null || dg.Columns.Count == 0) continue;
+                    for (int i = 0; i < ids.Length; i++)
+                    {
+                        string id = ids[i];
+                        if (!idToHeader.TryGetValue(id, out string header)) continue;
+                        var col = dg.Columns.Cast<DataGridColumn>().FirstOrDefault(c => object.Equals(c.Header?.ToString(), header));
+                        if (col == null) continue;
+                        col.DisplayIndex = i;
+                        string wKey = "PanelTable_ColumnWidth_" + id;
+                        string ws = cfg.GetString(wKey);
+                        double w = defaults.TryGetValue(id, out double def) ? def : 60;
+                        if (!string.IsNullOrEmpty(ws) && double.TryParse(ws, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) && parsed >= 30 && parsed <= 400)
+                            w = parsed;
+                        col.Width = new DataGridLength(w, DataGridLengthUnitType.Pixel);
+                    }
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[RestorePanelTableColumns] {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// 将面板表格列顺序与列宽保存到 App.config
+        /// </summary>
+        private void SavePanelTableColumns()
+        {
+            try
+            {
+                var dg = DataGrid_Table1;
+                if (dg?.Columns == null || dg.Columns.Count == 0) return;
+
+                var headerToId = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    { "名称", "Name" }, { "涨幅", "PriceChange" }, { "周K", "WeeklyK" }, { "月K", "MonthlyK" }, { "季K", "QuarterlyK" }
+                };
+                var defaults = new Dictionary<string, double>(StringComparer.Ordinal)
+                {
+                    { "名称", 60 }, { "涨幅", 48 }, { "周K", 50 }, { "月K", 50 }, { "季K", 50 }
+                };
+
+                var ordered = dg.Columns.Cast<DataGridColumn>()
+                    .OrderBy(c => c.DisplayIndex)
+                    .Select(c => c.Header?.ToString())
+                    .Where(h => !string.IsNullOrEmpty(h) && headerToId.ContainsKey(h))
+                    .Select(h => headerToId[h])
+                    .ToList();
+                if (ordered.Count == 0) return;
+
+                var cfg = AppConfigProvider.Instance;
+                cfg.SetValue("PanelTable_ColumnOrder", string.Join(",", ordered));
+
+                foreach (var col in dg.Columns.Cast<DataGridColumn>())
+                {
+                    string h = col.Header?.ToString();
+                    if (string.IsNullOrEmpty(h) || !headerToId.TryGetValue(h, out string id)) continue;
+                    
+                    // 优先使用当前列宽（如果是Pixel类型且有效）
+                    double val = defaults.TryGetValue(h, out double def) ? def : 60;
+                    if (col.Width.UnitType == DataGridLengthUnitType.Pixel && !double.IsNaN(col.Width.Value) && col.Width.Value > 0)
+                    {
+                        val = col.Width.Value;
+                    }
+                    else if (col.Width.UnitType == DataGridLengthUnitType.Auto)
+                    {
+                        // 如果是Auto，尝试获取实际渲染宽度
+                        if (col.ActualWidth > 0 && !double.IsNaN(col.ActualWidth))
+                            val = col.ActualWidth;
+                    }
+                    
+                    // 确保宽度在合理范围内
+                    if (val < 30) val = 30;
+                    if (val > 400) val = 400;
+                    
+                    cfg.SetValue("PanelTable_ColumnWidth_" + id, val.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[SavePanelTableColumns] {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// 更新计算结果
         /// </summary>
         public void UpdateResults(
             List<FilterResultWithHistory> results1,
@@ -351,10 +591,10 @@ namespace MQReceiver.Views
             }
         }
 
-        #region MQ服务控制
+        #region 数据服务控制
 
         /// <summary>
-        /// MQ服务按钮点击
+        /// 数据服务按钮点击
         /// </summary>
         private void MQServiceButton_Click(object sender, RoutedEventArgs e)
         {
@@ -369,7 +609,7 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// 启动MQ服务
+        /// 启动数据服务
         /// </summary>
         private void StartMQService()
         {
@@ -378,9 +618,9 @@ namespace MQReceiver.Views
                 // 显示日志面板
                 LogPanel.Visibility = Visibility.Visible;
                 ToggleLogButton.Content = "隐藏日志";  // 更新按钮文字
-                AppendLog("正在启动MQ服务...");
+                AppendLog("正在启动数据服务...");
 
-                // 创建MQ服务包装器并设置共享缓存
+                // 创建数据服务包装器并设置共享缓存
                 _mqService = new MQServiceWrapper();
                 _mqService.SetExternalCache(_sharedCache);  // 使用共享缓存
                 _mqService.LogMessage += OnMQLogMessage;
@@ -397,7 +637,7 @@ namespace MQReceiver.Views
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            AppendLog($"启动MQ服务失败: {ex.Message}");
+                            AppendLog($"启动数据服务失败: {ex.Message}");
                             UpdateMQStatus(false);
                         });
                     }
@@ -405,20 +645,20 @@ namespace MQReceiver.Views
 
                 _isMQRunning = true;
                 UpdateMQStatus(true);
-                MQServiceButton.Content = "停止MQ服务";
-                AppendLog("MQ服务启动命令已发送");
-                AppendLog("提示: MQ接收数据后，可启动过滤服务进行分析");
+                MQServiceButton.Content = "停止数据服务";
+                AppendLog("数据服务启动命令已发送");
+                AppendLog("提示: 数据服务接收数据后，可启动计算服务进行分析");
             }
             catch (Exception ex)
             {
-                AppendLog($"启动MQ服务失败: {ex.Message}");
-                MessageBox.Show($"启动MQ服务失败: {ex.Message}", "错误",
+                AppendLog($"启动数据服务失败: {ex.Message}");
+                MessageBox.Show($"启动数据服务失败: {ex.Message}", "错误",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         /// <summary>
-        /// 停止MQ服务
+        /// 停止数据服务
         /// </summary>
         private void StopMQService()
         {
@@ -426,27 +666,27 @@ namespace MQReceiver.Views
             {
                 if (_mqService != null)
                 {
-                    AppendLog("正在停止MQ服务...");
+                    AppendLog("正在停止数据服务...");
                     _mqService.Stop();
                     _mqService.LogMessage -= OnMQLogMessage;
                     _mqService.StatusChanged -= OnMQStatusChanged;
                     _mqService.Dispose();
                     _mqService = null;
-                    AppendLog("MQ服务已停止");
+                    AppendLog("数据服务已停止");
                 }
 
                 _isMQRunning = false;
                 UpdateMQStatus(false);
-                MQServiceButton.Content = "启动MQ服务";
+                MQServiceButton.Content = "接收数据服务";
             }
             catch (Exception ex)
             {
-                AppendLog($"停止MQ服务失败: {ex.Message}");
+                AppendLog($"停止数据服务失败: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// MQ日志消息回调
+        /// 数据服务日志消息回调
         /// </summary>
         private void OnMQLogMessage(object sender, string message)
         {
@@ -462,7 +702,7 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// MQ状态变化回调
+        /// 数据服务状态变化回调
         /// </summary>
         private void OnMQStatusChanged(object sender, bool isRunning)
         {
@@ -470,25 +710,25 @@ namespace MQReceiver.Views
             {
                 _isMQRunning = isRunning;
                 UpdateMQStatus(isRunning);
-                MQServiceButton.Content = isRunning ? "停止MQ服务" : "启动MQ服务";
+                MQServiceButton.Content = isRunning ? "停止数据服务" : "接收数据服务";
             });
         }
 
         /// <summary>
-        /// 更新MQ状态显示
+        /// 更新数据服务状态显示
         /// </summary>
         private void UpdateMQStatus(bool isRunning)
         {
             if (isRunning)
             {
                 MQStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x4E, 0xCD, 0x4E)); // 绿色
-                MQStatusText.Text = "MQ运行中";
+                MQStatusText.Text = "数据服务运行中";
                 MQStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xCD, 0x4E));
             }
             else
             {
                 MQStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x6E, 0x6E, 0x6E)); // 灰色
-                MQStatusText.Text = "MQ未启动";
+                MQStatusText.Text = "数据服务未启动";
                 MQStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x85, 0x85, 0x85));
             }
         }
@@ -538,10 +778,10 @@ namespace MQReceiver.Views
 
         #endregion
 
-        #region 过滤服务控制
+        #region 计算服务控制
 
         /// <summary>
-        /// 过滤服务按钮点击
+        /// 计算服务按钮点击
         /// </summary>
         private void FilterServiceButton_Click(object sender, RoutedEventArgs e)
         {
@@ -556,7 +796,7 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// 启动过滤服务
+        /// 启动计算服务
         /// </summary>
         private void StartFilterService()
         {
@@ -569,19 +809,19 @@ namespace MQReceiver.Views
                 // 如果缓存为空，提示将从数据库加载
                 if (_sharedCache == null || _sharedCache.Count == 0)
                 {
-                    AppendLog("缓存中没有实时数据，过滤服务将尝试从数据库加载股票列表");
+                    AppendLog("缓存中没有实时数据，计算服务将尝试从数据库加载股票列表");
                 }
 
-                AppendLog("正在启动过滤服务...");
+                AppendLog("正在启动计算服务...");
 
-                // 创建过滤服务并设置共享缓存
+                // 创建计算服务并设置共享缓存
                 _filterService = new FilterService();
                 _filterService.SetExternalCache(_sharedCache);
                 
                 // 订阅日志事件
                 _filterService.LogMessage += (msg) => Dispatcher.Invoke(() => AppendLog(msg));
 
-                // 订阅过滤完成事件
+                // 订阅计算完成事件
                 _filterService.FilterCompleted += OnFilterCompleted;
 
                 // 在后台线程初始化和启动
@@ -597,18 +837,18 @@ namespace MQReceiver.Views
                             {
                                 _isFilterRunning = true;
                                 UpdateFilterStatus(true);
-                                FilterServiceButton.Content = "停止过滤";
-                                AppendLog("过滤服务已启动");
+                                FilterServiceButton.Content = "停止计算";
+                                AppendLog("计算服务已启动");
                             });
 
-                            // 立即执行一次过滤
+                            // 立即执行一次计算
                             _filterService.TriggerFilter();
                         }
                         else
                         {
                             Dispatcher.Invoke(() =>
                             {
-                                AppendLog("过滤服务初始化失败");
+                                AppendLog("计算服务初始化失败");
                                 UpdateFilterStatus(false);
                             });
                         }
@@ -617,7 +857,7 @@ namespace MQReceiver.Views
                     {
                         Dispatcher.Invoke(() =>
                         {
-                            AppendLog($"启动过滤服务失败: {ex.Message}");
+                            AppendLog($"启动计算服务失败: {ex.Message}");
                             UpdateFilterStatus(false);
                         });
                     }
@@ -625,14 +865,14 @@ namespace MQReceiver.Views
             }
             catch (Exception ex)
             {
-                AppendLog($"启动过滤服务失败: {ex.Message}");
-                MessageBox.Show($"启动过滤服务失败: {ex.Message}", "错误",
+                AppendLog($"启动计算服务失败: {ex.Message}");
+                MessageBox.Show($"启动计算服务失败: {ex.Message}", "错误",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         /// <summary>
-        /// 停止过滤服务
+        /// 停止计算服务
         /// </summary>
         private void StopFilterService()
         {
@@ -640,53 +880,53 @@ namespace MQReceiver.Views
             {
                 if (_filterService != null)
                 {
-                    AppendLog("正在停止过滤服务...");
+                    AppendLog("正在停止计算服务...");
                     _filterService.FilterCompleted -= OnFilterCompleted;
                     _filterService.LogMessage -= null;  // 取消订阅日志事件
                     _filterService.Stop();
                     _filterService.Dispose();
                     _filterService = null;
-                    AppendLog("过滤服务已停止");
+                    AppendLog("计算服务已停止");
                 }
 
                 _isFilterRunning = false;
                 UpdateFilterStatus(false);
-                FilterServiceButton.Content = "启动过滤";
+                FilterServiceButton.Content = "开始计算";
             }
             catch (Exception ex)
             {
-                AppendLog($"停止过滤服务失败: {ex.Message}");
+                AppendLog($"停止计算服务失败: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// 过滤完成回调
+        /// 计算完成回调
         /// </summary>
         private void OnFilterCompleted(object sender, MQReceiver.Events.FilterResultEventArgs e)
         {
             Dispatcher.Invoke(() =>
             {
                 UpdateResults(e.Table1Results, e.Table2Results, e.Table3Results, e.Table4Results, e.Table5Results, e.Table6Results, e.Table7Results, e.Table8Results);
-                AppendLog($"过滤完成: 表1={e.Table1Results?.Count ?? 0}, 表2={e.Table2Results?.Count ?? 0}, 表3={e.Table3Results?.Count ?? 0}, 表4={e.Table4Results?.Count ?? 0}, 表5={e.Table5Results?.Count ?? 0}, 表6={e.Table6Results?.Count ?? 0}, 表7={e.Table7Results?.Count ?? 0}, 表8={e.Table8Results?.Count ?? 0}");
+                AppendLog($"计算完成: 表1={e.Table1Results?.Count ?? 0}, 表2={e.Table2Results?.Count ?? 0}, 表3={e.Table3Results?.Count ?? 0}, 表4={e.Table4Results?.Count ?? 0}, 表5={e.Table5Results?.Count ?? 0}, 表6={e.Table6Results?.Count ?? 0}, 表7={e.Table7Results?.Count ?? 0}, 表8={e.Table8Results?.Count ?? 0}");
                 UpdateCacheStatus();
             });
         }
 
         /// <summary>
-        /// 更新过滤状态显示
+        /// 更新计算状态显示
         /// </summary>
         private void UpdateFilterStatus(bool isRunning)
         {
             if (isRunning)
             {
                 FilterStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x4E, 0xCD, 0x4E)); // 绿色
-                FilterStatusText.Text = "过滤运行中";
+                FilterStatusText.Text = "计算运行中";
                 FilterStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xCD, 0x4E));
             }
             else
             {
                 FilterStatusIndicator.Fill = new SolidColorBrush(Color.FromRgb(0x6E, 0x6E, 0x6E)); // 灰色
-                FilterStatusText.Text = "过滤未启动";
+                FilterStatusText.Text = "计算未启动";
                 FilterStatusText.Foreground = new SolidColorBrush(Color.FromRgb(0x85, 0x85, 0x85));
             }
         }

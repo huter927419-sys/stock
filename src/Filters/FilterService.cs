@@ -18,8 +18,8 @@ using Npgsql;
 namespace MQReceiver.Services
 {
     /// <summary>
-    /// KD过滤器服务
-    /// 负责定时执行股票过滤
+    /// KD计算器服务
+    /// 负责定时执行股票计算
     /// 使用事件模式通知订阅者（如UI层），实现解耦
     /// 线程安全：使用volatile确保多线程间的可见性
     ///
@@ -33,8 +33,8 @@ namespace MQReceiver.Services
         private RealTimeDataCache realTimeCache;
         private bool _ownsCache = true;  // 是否拥有缓存的生命周期管理权
         private KDCalculator kdCalculator;
-        private StockFilterOrchestrator filterOrchestrator;  // 过滤器协调器（旧版6个过滤器）
-        private UnifiedStockFilter unifiedFilter;  // 新版统一过滤器（6个过滤条件）
+        private StockFilterOrchestrator filterOrchestrator;  // 计算器协调器（旧版6个计算器）
+        private UnifiedStockFilter unifiedFilter;  // 新版统一计算器（6个计算条件）
         private DataBoundaryManager dataBoundaryManager;  // 数据边界管理器
         private System.Timers.Timer filterTimer;
         private readonly object _timerLock = new object();
@@ -47,12 +47,12 @@ namespace MQReceiver.Services
         private BatchKDCalculator _batchKDCalculator;
 
         // 数据变化检测
-        private DateTime _lastCacheUpdateTime = DateTime.MinValue;  // 上次过滤时缓存的更新时间
-        private DateTime? _lastDbDate = null;  // 上次过滤时数据库的最新日期
-        private bool _forceNextFilter = true;  // 强制下次过滤（首次启动时）
+        private DateTime _lastCacheUpdateTime = DateTime.MinValue;  // 上次计算时缓存的更新时间
+        private DateTime? _lastDbDate = null;  // 上次计算时数据库的最新日期
+        private bool _forceNextFilter = true;  // 强制下次计算（首次启动时）
 
         /// <summary>
-        /// 过滤完成事件 - 订阅者（如UI层）订阅此事件以获取过滤结果
+        /// 计算完成事件 - 订阅者（如UI层）订阅此事件以获取计算结果
         /// </summary>
         public event EventHandler<FilterResultEventArgs> FilterCompleted;
 
@@ -121,7 +121,7 @@ namespace MQReceiver.Services
             try
             {
                 Console.WriteLine("========================================");
-                Console.WriteLine("  初始化KD过滤器服务");
+                Console.WriteLine("  初始化KD计算器服务");
                 Console.WriteLine("========================================");
                 Console.WriteLine();
 
@@ -164,15 +164,15 @@ namespace MQReceiver.Services
                     
                     filterOrchestrator = new StockFilterOrchestrator(kdCalculator, realTimeCache);
                     
-                    // 创建标准统一过滤器（内存缓存将在首次执行过滤时初始化）
+                    // 创建标准统一计算器（内存缓存将在首次执行计算时初始化）
                     unifiedFilter = new UnifiedStockFilter(kdCalculator, realTimeCache);
                     
-                    // 订阅过滤器的日志事件
+                    // 订阅计算器的日志事件
                     unifiedFilter.LogMessage += (msg) => LogMessage?.Invoke(msg);
                     
                     Console.WriteLine("KD计算器初始化成功（支持实时数据合并，启用前复权计算）");
-                    Console.WriteLine("新版统一过滤器初始化成功（6个条件：强多排列/中多排列/强多缠绕/中多缠绕/强多反弹/中多反弹）");
-                    LogMessage?.Invoke("KD计算器和过滤器初始化成功");
+                    Console.WriteLine("新版统一计算器初始化成功（6个条件：强多排列/中多排列/强多缠绕/中多缠绕/强多反弹/中多反弹）");
+                    LogMessage?.Invoke("KD计算器和计算器初始化成功");
                 }
                 catch (Exception ex)
                 {
@@ -233,18 +233,18 @@ namespace MQReceiver.Services
                     return false;
                 }
 
-                Console.WriteLine("过滤器服务初始化完成");
+                Console.WriteLine("计算器服务初始化完成");
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine("错误: 初始化过滤器服务失败: " + ex.Message);
+                Console.WriteLine("错误: 初始化计算器服务失败: " + ex.Message);
                 return false;
             }
         }
 
         /// <summary>
-        /// 启动定时过滤任务
+        /// 启动定时计算任务
         /// </summary>
         public void StartTimer()
         {
@@ -262,20 +262,20 @@ namespace MQReceiver.Services
                     timer.Start();
                     filterTimer = timer;
                     _isRunning = true;
-                    Console.WriteLine("KD过滤定时任务已启动（每{0}分钟执行一次）", intervalMinutes);
+                    Console.WriteLine("KD计算定时任务已启动（每{0}分钟执行一次）", intervalMinutes);
 
                     // 触发服务启动事件
                     ServiceStarted?.Invoke(this, EventArgs.Empty);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("警告: 启动定时过滤任务失败: " + ex.Message);
+                    Console.WriteLine("警告: 启动定时计算任务失败: " + ex.Message);
                 }
             }
         }
 
         /// <summary>
-        /// 启动过滤器服务（阻塞模式，兼容旧调用方式）
+        /// 启动计算器服务（阻塞模式，兼容旧调用方式）
         /// </summary>
         public bool Start()
         {
@@ -286,16 +286,16 @@ namespace MQReceiver.Services
 
             StartTimer();
 
-            // 立即执行一次过滤
+            // 立即执行一次计算
             Console.WriteLine();
-            Console.WriteLine("立即执行首次过滤...");
+            Console.WriteLine("立即执行首次计算...");
             Console.WriteLine();
             ExecuteFilter();
 
             Console.WriteLine();
-            Console.WriteLine("过滤器服务运行中...");
+            Console.WriteLine("计算器服务运行中...");
             Console.WriteLine("提示: 按 'Q' 键退出服务");
-            Console.WriteLine("提示: 过滤结果将在新窗口中显示，点击股票名称可打开图表");
+            Console.WriteLine("提示: 计算结果将在新窗口中显示，点击股票名称可打开图表");
             Console.WriteLine();
 
             // 等待用户输入退出
@@ -305,7 +305,7 @@ namespace MQReceiver.Services
                 if (key.Key == ConsoleKey.Q || key.Key == ConsoleKey.Escape)
                 {
                     Console.WriteLine();
-                    Console.WriteLine("正在停止过滤器服务...");
+                    Console.WriteLine("正在停止计算器服务...");
                     Stop();
                     break;
                 }
@@ -315,7 +315,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 停止过滤器服务
+        /// 停止计算器服务
         /// </summary>
         public void Stop()
         {
@@ -392,7 +392,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 定时器触发事件 - 执行KD过滤
+        /// 定时器触发事件 - 执行KD计算
         /// </summary>
         private void OnFilterTimerElapsed(object sender, ElapsedEventArgs e)
         {
@@ -400,7 +400,7 @@ namespace MQReceiver.Services
             if (!_isRunning)
                 return;
 
-            // 使用后台线程异步执行过滤
+            // 使用后台线程异步执行计算
             Task.Run(() =>
             {
                 // 再次检查，避免在Stop后仍执行
@@ -414,7 +414,7 @@ namespace MQReceiver.Services
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("执行KD过滤时出错: " + ex.Message);
+                    Console.WriteLine("执行KD计算时出错: " + ex.Message);
                 }
                 finally
                 {
@@ -424,7 +424,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 手动触发一次过滤（强制执行，不检查数据变化）
+        /// 手动触发一次计算（强制执行，不检查数据变化）
         /// </summary>
         public void TriggerFilter()
         {
@@ -432,7 +432,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 执行过滤（带数据变化检测）
+        /// 执行计算（带数据变化检测）
         /// </summary>
         private void ExecuteFilter()
         {
@@ -440,7 +440,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 执行过滤
+        /// 执行计算
         /// </summary>
         /// <param name="forceExecute">是否强制执行（忽略数据变化检测）</param>
         private void ExecuteFilter(bool forceExecute)
@@ -449,7 +449,7 @@ namespace MQReceiver.Services
             {
                 if (filterOrchestrator == null || realTimeCache == null)
                 {
-                    Console.WriteLine("警告: KD过滤器未初始化，跳过本次过滤");
+                    Console.WriteLine("警告: KD计算器未初始化，跳过本次计算");
                     return;
                 }
 
@@ -463,15 +463,15 @@ namespace MQReceiver.Services
 
                 if (!forceExecute && !_forceNextFilter && !hasNewData)
                 {
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 数据未变化，跳过本次过滤（缓存: {currentCacheUpdateTime:HH:mm:ss}, 数据库: {latestDbDate?.ToString("yyyy-MM-dd") ?? "无"}）");
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 数据未变化，跳过本次计算（缓存: {currentCacheUpdateTime:HH:mm:ss}, 数据库: {latestDbDate?.ToString("yyyy-MM-dd") ?? "无"}）");
                     return;
                 }
 
-                // 重置强制过滤标志
+                // 重置强制计算标志
                 _forceNextFilter = false;
 
                 Console.WriteLine();
-                Console.WriteLine("========== 开始执行KD过滤 ==========");
+                Console.WriteLine("========== 开始执行KD计算 ==========");
                 Console.WriteLine("时间: {0}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 Console.WriteLine("缓存中的股票数量: {0}", realTimeCache.Count);
                 Console.WriteLine("缓存最后更新时间: {0}",
@@ -486,7 +486,7 @@ namespace MQReceiver.Services
 
                     if (realTimeCache.Count == 0)
                     {
-                        Console.WriteLine("数据库中也没有股票数据，跳过过滤");
+                        Console.WriteLine("数据库中也没有股票数据，跳过计算");
                         Console.WriteLine("提示: 请先通过MQ服务接收日线数据或实时数据");
                         return;
                     }
@@ -519,7 +519,7 @@ namespace MQReceiver.Services
                         _batchKDCalculator = new BatchKDCalculator(_klineMemoryCache, realTimeCache);
                         _batchKDCalculator.PreCalculateAllKD(stockCodes, initTargetDate);
                         
-                        // 3. 使用批量计算器重新创建统一过滤器
+                        // 3. 使用批量计算器重新创建统一计算器
                         unifiedFilter = new UnifiedStockFilter(kdCalculator, realTimeCache, _batchKDCalculator);
                         unifiedFilter.LogMessage += (msg) => LogMessage?.Invoke(msg);
                         
@@ -542,7 +542,7 @@ namespace MQReceiver.Services
                 }
 
                 Console.WriteLine();
-                Console.WriteLine("开始数据完整性检查和过滤...");
+                Console.WriteLine("开始数据完整性检查和计算...");
                 Console.WriteLine();
 
                 // 记录开始时间
@@ -564,19 +564,19 @@ namespace MQReceiver.Services
                 }
                 Console.WriteLine($"状态描述: {dataStatus.StatusDescription}");
 
-                // 更新上次过滤时的数据状态（在过滤开始时更新，确保即使过滤失败也不会重复执行）
+                // 更新上次计算时的数据状态（在计算开始时更新，确保即使计算失败也不会重复执行）
                 _lastCacheUpdateTime = currentCacheUpdateTime;
                 _lastDbDate = latestDbDate;
 
                 // 关键修复：确保 StockInfoCache 已加载（用于获取正确的股票名称）
-                Console.WriteLine("[过滤准备] 确保 StockInfoCache 已加载...");
+                Console.WriteLine("[计算准备] 确保 StockInfoCache 已加载...");
                 StockInfoCache.Instance.EnsureLoaded();
                 if (StockInfoCache.Instance.Count == 0)
                 {
-                    Console.WriteLine("[过滤准备] StockInfoCache 为空，尝试同步...");
+                    Console.WriteLine("[计算准备] StockInfoCache 为空，尝试同步...");
                     StockInfoCache.Instance.SyncFromDailyData();
                 }
-                Console.WriteLine($"[过滤准备] StockInfoCache 已加载 {StockInfoCache.Instance.Count} 只股票名称");
+                Console.WriteLine($"[计算准备] StockInfoCache 已加载 {StockInfoCache.Instance.Count} 只股票名称");
 
                 // 性能优化：显示内存缓存状态
                 if (_klineMemoryCache != null && _batchKDCalculator != null)
@@ -585,12 +585,12 @@ namespace MQReceiver.Services
                     Console.WriteLine($"[性能优化] 使用内存模式 - 已缓存 {kdStats.stockCount} 只股票, {kdStats.totalResults} 个KD结果");
                 }
 
-                // ========== 执行6个新的过滤条件（并行执行，提升速度）==========
-                Console.WriteLine("开始并行执行6个过滤条件...");
+                // ========== 执行6个新的计算条件（并行执行，提升速度）==========
+                Console.WriteLine("开始并行执行6个计算条件...");
                 Console.WriteLine($"股票数量: {realTimeCache.Count}");
                 Console.WriteLine();
                 
-                // 并行执行6个过滤器，大幅提升速度
+                // 并行执行6个计算器，大幅提升速度
                 var filter1Task = Task.Run(() => ExecuteNewFilter(1, "强多排列", targetDate));
                 var filter2Task = Task.Run(() => ExecuteNewFilter(2, "中多排列", targetDate));
                 var filter3Task = Task.Run(() => ExecuteNewFilter(3, "强多缠绕", targetDate));
@@ -598,8 +598,8 @@ namespace MQReceiver.Services
                 var filter5Task = Task.Run(() => ExecuteNewFilter(5, "强多反弹", targetDate));
                 var filter6Task = Task.Run(() => ExecuteNewFilter(6, "中多反弹", targetDate));
                 
-                // 等待所有过滤器完成，并显示进度
-                string waitMsg = "等待所有过滤器完成...";
+                // 等待所有计算器完成，并显示进度
+                string waitMsg = "等待所有计算器完成...";
                 Console.WriteLine(waitMsg);
                 LogMessage?.Invoke(waitMsg);
                 Task.WaitAll(filter1Task, filter2Task, filter3Task, filter4Task, filter5Task, filter6Task);
@@ -611,7 +611,7 @@ namespace MQReceiver.Services
                 var enrichedResults5 = filter5Task.Result;
                 var enrichedResults6 = filter6Task.Result;
                 
-                Console.WriteLine("所有过滤器执行完成！");
+                Console.WriteLine("所有计算器执行完成！");
                 Console.WriteLine();
 
                 stopwatch.Stop();
@@ -638,7 +638,7 @@ namespace MQReceiver.Services
                 var (cacheCount, totalDataPoints) = klineRepository.GetCacheStats();
                 Console.WriteLine($"[K线缓存统计] 缓存股票数: {cacheCount}, 总数据点数: {totalDataPoints:N0}");
                 
-                Console.WriteLine("========== KD过滤完成 ==========");
+                Console.WriteLine("========== KD计算完成 ==========");
                 Console.WriteLine("实际执行时间: {0:F2} 秒 ({1:F1} 分钟)",
                     stopwatch.Elapsed.TotalSeconds, stopwatch.Elapsed.TotalMinutes);
                 if (realTimeCache.Count > 0)
@@ -653,14 +653,14 @@ namespace MQReceiver.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine("执行过滤时出错: " + ex.Message);
+                Console.WriteLine("执行计算时出错: " + ex.Message);
                 Console.WriteLine("异常堆栈: " + ex.StackTrace);
             }
         }
 
         /// <summary>
-        /// 执行单个新过滤条件
-        /// 添加异常处理，确保单个过滤器失败不影响其他过滤器
+        /// 执行单个新计算条件
+        /// 添加异常处理，确保单个计算器失败不影响其他计算器
         /// 添加进度提示，让用户知道执行状态
         /// </summary>
         private List<FilterResultWithHistory> ExecuteNewFilter(int filterId, string filterName, DateTime targetDate)
@@ -668,7 +668,7 @@ namespace MQReceiver.Services
             try
             {
                 var startTime = DateTime.Now;
-                string startMsg = $"【{filterName}】（过滤器{filterId}）开始执行...";
+                string startMsg = $"【{filterName}】（计算器{filterId}）开始执行...";
                 Console.WriteLine($"[{startTime:HH:mm:ss}] {startMsg}");
                 LogMessage?.Invoke($"[{startTime:HH:mm:ss}] {startMsg}");
                 
@@ -678,7 +678,7 @@ namespace MQReceiver.Services
                 sw.Stop();
                 
                 var endTime = DateTime.Now;
-                string completeMsg = $"【{filterName}】（过滤器{filterId}）完成 - 结果: {results.Count} 只股票，耗时: {sw.Elapsed.TotalSeconds:F2} 秒";
+                string completeMsg = $"【{filterName}】（计算器{filterId}）完成 - 结果: {results.Count} 只股票，耗时: {sw.Elapsed.TotalSeconds:F2} 秒";
                 Console.WriteLine($"[{endTime:HH:mm:ss}] {completeMsg}");
                 LogMessage?.Invoke($"[{endTime:HH:mm:ss}] {completeMsg}");
                 
@@ -687,7 +687,7 @@ namespace MQReceiver.Services
             catch (Exception ex)
             {
                 var errorTime = DateTime.Now;
-                string errorMsg = $"错误: 过滤器{filterId}（{filterName}）执行失败: {ex.Message}";
+                string errorMsg = $"错误: 计算器{filterId}（{filterName}）执行失败: {ex.Message}";
                 Console.WriteLine($"[{errorTime:HH:mm:ss}] {errorMsg}");
                 LogMessage?.Invoke($"[{errorTime:HH:mm:ss}] {errorMsg}");
                 
@@ -696,13 +696,13 @@ namespace MQReceiver.Services
                     Console.WriteLine($"  内部异常: {ex.InnerException.Message}");
                 }
                 Console.WriteLine($"  异常堆栈: {ex.StackTrace}");
-                // 返回空列表，确保不影响其他过滤器的执行
+                // 返回空列表，确保不影响其他计算器的执行
                 return new List<FilterResultWithHistory>();
             }
         }
 
         /// <summary>
-        /// 触发过滤完成事件
+        /// 触发计算完成事件
         /// </summary>
         protected virtual void OnFilterCompleted(FilterResultEventArgs e)
         {
@@ -739,8 +739,8 @@ namespace MQReceiver.Services
 
         /// <summary>
         /// 从数据库加载股票代码列表到缓存
-        /// 当实时数据缓存为空时调用，使过滤服务可以基于日线数据运行
-        /// 改进：1. 过滤非A股股票  2. 确保股票名称正确加载
+        /// 当实时数据缓存为空时调用，使计算服务可以基于日线数据运行
+        /// 改进：1. 计算非A股股票  2. 确保股票名称正确加载
         /// </summary>
         private void LoadStockCodesFromDatabase()
         {
@@ -753,7 +753,7 @@ namespace MQReceiver.Services
                 {
                     Console.WriteLine($"[股票加载] 从数据库获取到 {allStockCodes.Count} 只股票代码");
 
-                    // 关键修复1：在加载时就过滤掉非A股股票（指数、基金、B股、已退市等）
+                    // 关键修复1：在加载时就计算掉非A股股票（指数、基金、B股、已退市等）
                     var validStockCodes = allStockCodes.Where(code => StockDataParser.IsValidStockCode(code)).ToList();
                     int filteredCount = allStockCodes.Count - validStockCodes.Count;
                     
@@ -772,7 +772,7 @@ namespace MQReceiver.Services
                     
                     Console.WriteLine($"[股票加载] StockInfoCache 已加载 {StockInfoCache.Instance.Count} 只股票名称");
 
-                    // 关键修复3：过滤掉所有ST股票（*ST、ST等）
+                    // 关键修复3：计算掉所有ST股票（*ST、ST等）
                     var nonSTStockCodes = new List<string>();
                     int stFilteredCount = 0;
                     
@@ -788,7 +788,7 @@ namespace MQReceiver.Services
                         nonSTStockCodes.Add(code);
                     }
                     
-                    Console.WriteLine($"[股票加载] 过滤ST股票后剩余 {nonSTStockCodes.Count} 只股票（已过滤 {stFilteredCount} 只ST股票）");
+                    Console.WriteLine($"[股票加载] 计算ST股票后剩余 {nonSTStockCodes.Count} 只股票（已计算 {stFilteredCount} 只ST股票）");
 
                     // 获取股票名称（从 StockInfoCache，而不是直接查数据库）
                     var stockNames = repository.GetAllStockNames();

@@ -44,7 +44,7 @@ namespace MQReceiver.Helpers
                 "    * 小计：1842ms\n" +
                 "  - 月KD计算：1842ms\n" +
                 "  - 季KD计算：1842ms\n" +
-                "  - 过滤条件检查：0.5ms\n" +
+                "  - 计算条件检查：0.5ms\n" +
                 "  - 小计：约5526ms/股票（约5.5秒）\n" +
                 "\n" +
                 "【预计算方案 - 入库时计算复权价格】\n" +
@@ -53,7 +53,7 @@ namespace MQReceiver.Helpers
                 "  - 周KD计算（直接查询复权价格）：43ms\n" +
                 "  - 月KD计算（直接查询复权价格）：43ms\n" +
                 "  - 季KD计算（直接查询复权价格）：43ms\n" +
-                "  - 过滤条件检查：0.5ms\n" +
+                "  - 计算条件检查：0.5ms\n" +
                 "  - 小计：约129ms/股票（减少97.7%）\n" +
                 "\n" +
                 "总耗时估算：\n" +
@@ -76,7 +76,7 @@ namespace MQReceiver.Helpers
             );
 
             // 优化建议
-            estimate.Recommendations.Add("【强烈推荐】入库时预计算复权价格：可以节省97.7%的过滤时间！");
+            estimate.Recommendations.Add("【强烈推荐】入库时预计算复权价格：可以节省97.7%的计算时间！");
             estimate.Recommendations.Add("1. 在DailyDataDBWriter中，保存日线数据后立即计算并保存复权价格");
             estimate.Recommendations.Add("2. 在stock_daily_data表中添加adjusted_*_price字段存储复权价格");
             estimate.Recommendations.Add("3. KD计算时直接使用复权价格，无需查询除权数据并计算");

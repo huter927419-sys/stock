@@ -46,6 +46,22 @@ namespace MQReceiver.Repositories
         /// <param name="dataList">日线数据列表</param>
         /// <returns>更新的记录数</returns>
         int UpdateDailyData(List<KlineData> dataList);
+
+        /// <summary>
+        /// 获取指定日期的成交金额（元）和换手率（%），用于表格统一计算条件。
+        /// </summary>
+        /// <param name="stockCode">股票代码</param>
+        /// <param name="tradeDate">交易日期（通常为昨日）</param>
+        /// <returns>(成交金额, 换手率)。换手率无数据时为 null。</returns>
+        (decimal? Amount, decimal? TurnoverRate) GetYesterdayAmountAndTurnoverRate(string stockCode, DateTime tradeDate);
+        
+        /// <summary>
+        /// 批量获取指定日期的成交金额（元）和换手率（%），用于性能优化
+        /// </summary>
+        /// <param name="stockCodes">股票代码列表</param>
+        /// <param name="tradeDate">交易日期（通常为昨日）</param>
+        /// <returns>股票代码 -> (成交金额, 换手率) 的字典</returns>
+        Dictionary<string, (decimal? Amount, decimal? TurnoverRate)> GetYesterdayAmountAndTurnoverRateBatch(List<string> stockCodes, DateTime tradeDate);
     }
 
     /// <summary>

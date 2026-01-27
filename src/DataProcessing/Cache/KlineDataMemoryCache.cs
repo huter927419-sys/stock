@@ -135,7 +135,7 @@ namespace MQReceiver.Cache
                 }).ToList();
             }
             
-            // 从缓存中过滤日期范围
+            // 从缓存中计算日期范围
             return data.Where(kv => kv.Key >= startDate && kv.Key <= endDate)
                       .Select(kv => kv.Value)
                       .ToList();

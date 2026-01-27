@@ -44,6 +44,7 @@ namespace MQReceiver.Models
         public decimal ClosePrice { get; set; }
         public decimal Volume { get; set; }
         public decimal Amount { get; set; }
+        public decimal? TurnoverRate { get; set; }  // 换手率（%），如 3.5 表示 3.5%
         public ushort AdvanceCount { get; set; }
         public ushort DeclineCount { get; set; }
     }

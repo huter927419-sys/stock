@@ -391,6 +391,153 @@ namespace MQReceiver.Repositories
         }
         
         /// <summary>
+        /// 获取指定日期的成交金额（元）和换手率（%）
+        /// </summary>
+        public (decimal? Amount, decimal? TurnoverRate) GetYesterdayAmountAndTurnoverRate(string stockCode, DateTime tradeDate)
+        {
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    string sql = @"
+                        SELECT amount, turnover_rate
+                        FROM stock_daily_data
+                        WHERE stock_code = @stock_code AND trade_date = @trade_date";
+                    using (var cmd = new NpgsqlCommand(sql, connection))
+                    {
+                        cmd.Parameters.AddWithValue("@stock_code", stockCode);
+                        cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                decimal amount = reader.GetDecimal(0);
+                                decimal? turnover = reader.IsDBNull(1) ? (decimal?)null : reader.GetDecimal(1);
+                                return (amount, turnover);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Npgsql.PostgresException ex) when (ex.SqlState == "42703")
+            {
+                // turnover_rate 列不存在时，仅查 amount
+                try
+                {
+                    using (var connection = new NpgsqlConnection(_connectionString))
+                    {
+                        connection.Open();
+                        string sql = @"SELECT amount FROM stock_daily_data WHERE stock_code = @stock_code AND trade_date = @trade_date";
+                        using (var cmd = new NpgsqlCommand(sql, connection))
+                        {
+                            cmd.Parameters.AddWithValue("@stock_code", stockCode);
+                            cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                            var v = cmd.ExecuteScalar();
+                            return (v != null && v != DBNull.Value ? (decimal?)Convert.ToDecimal(v) : null, null);
+                        }
+                    }
+                }
+                catch { return (null, null); }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"GetYesterdayAmountAndTurnoverRate [{stockCode}]: {ex.Message}");
+            }
+            return (null, null);
+        }
+
+        /// <summary>
+        /// 批量获取指定日期的成交金额（元）和换手率（%），用于性能优化
+        /// </summary>
+        public Dictionary<string, (decimal? Amount, decimal? TurnoverRate)> GetYesterdayAmountAndTurnoverRateBatch(List<string> stockCodes, DateTime tradeDate)
+        {
+            var result = new Dictionary<string, (decimal? Amount, decimal? TurnoverRate)>();
+            
+            if (stockCodes == null || stockCodes.Count == 0)
+                return result;
+            
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    
+                    // 批量查询：使用 IN 子句一次性查询所有股票
+                    string sql = @"
+                        SELECT stock_code, amount, turnover_rate
+                        FROM stock_daily_data
+                        WHERE stock_code = ANY(@stock_codes) AND trade_date = @trade_date";
+                    
+                    using (var cmd = new NpgsqlCommand(sql, connection))
+                    {
+                        // 使用数组参数（PostgreSQL数组类型）
+                        var stockCodesParam = new NpgsqlParameter("@stock_codes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                        {
+                            Value = stockCodes.ToArray()
+                        };
+                        cmd.Parameters.Add(stockCodesParam);
+                        cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                        
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string code = reader.GetString(0);
+                                decimal amount = reader.GetDecimal(1);
+                                decimal? turnover = reader.IsDBNull(2) ? (decimal?)null : reader.GetDecimal(2);
+                                result[code] = (amount, turnover);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Npgsql.PostgresException ex) when (ex.SqlState == "42703")
+            {
+                // turnover_rate 列不存在时，仅查 amount
+                try
+                {
+                    using (var connection = new NpgsqlConnection(_connectionString))
+                    {
+                        connection.Open();
+                        string sql = @"
+                            SELECT stock_code, amount
+                            FROM stock_daily_data
+                            WHERE stock_code = ANY(@stock_codes) AND trade_date = @trade_date";
+                        using (var cmd = new NpgsqlCommand(sql, connection))
+                        {
+                            var stockCodesParam = new NpgsqlParameter("@stock_codes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                            {
+                                Value = stockCodes.ToArray()
+                            };
+                            cmd.Parameters.Add(stockCodesParam);
+                            cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    string code = reader.GetString(0);
+                                    decimal amount = reader.GetDecimal(1);
+                                    result[code] = (amount, null);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    Console.WriteLine($"GetYesterdayAmountAndTurnoverRateBatch (fallback): {ex2.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"GetYesterdayAmountAndTurnoverRateBatch: {ex.Message}");
+            }
+            
+            return result;
+        }
+
+        /// <summary>
         /// 清除指定股票的缓存
         /// </summary>
         public void ClearCache(string stockCode)

@@ -202,5 +202,16 @@ namespace MQReceiver.Helpers
                 return null;
             return ushort.TryParse(value, out ushort result) ? result : (ushort?)null;
         }
+
+        /// <summary>
+        /// 从JSON对象中提取可空decimal值
+        /// </summary>
+        public static decimal? ExtractNullableDecimalValue(string json, string key)
+        {
+            string value = ExtractStringValue(json, key);
+            if (string.IsNullOrEmpty(value) || value == "null")
+                return null;
+            return decimal.TryParse(value, out decimal result) ? result : (decimal?)null;
+        }
     }
 }

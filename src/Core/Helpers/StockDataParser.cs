@@ -10,6 +10,11 @@ namespace MQReceiver.Helpers
     public static class StockDataParser
     {
         /// <summary>
+        /// 换手率日志计数器（用于限制日志输出数量）
+        /// </summary>
+        private static int? _turnoverLogCount = null;
+
+        /// <summary>
         /// 非A股代码黑名单（指数、基金、B股等）
         /// 这些代码即使符合A股格式，也不应该被处理
         /// </summary>
@@ -71,7 +76,7 @@ namespace MQReceiver.Helpers
         /// <summary>
         /// 验证股票代码是否为有效的A股代码
         /// 排除指数、B股、北交所等
-        /// 采用智能规则过滤，减少对黑名单的依赖
+        /// 采用智能规则计算，减少对黑名单的依赖
         /// </summary>
         public static bool IsValidStockCode(string stockCode)
         {
@@ -108,7 +113,7 @@ namespace MQReceiver.Helpers
                 return true;
 
             // 规则5：深圳A股：000xxx, 001xxx, 002xxx, 003xxx
-            // 注意：000000-000199已被规则1过滤
+            // 注意：000000-000199已被规则1计算
             if (stockCode.StartsWith("00") || stockCode.StartsWith("001") ||
                 stockCode.StartsWith("002") || stockCode.StartsWith("003"))
                 return true;
@@ -238,6 +243,40 @@ namespace MQReceiver.Helpers
                     Volume = JsonParserHelper.ExtractDecimalValue(recordJson, "volume"),
                     Amount = JsonParserHelper.ExtractDecimalValue(recordJson, "amount")
                 };
+
+                // 解析换手率（尝试多个可能的字段名：turnover_rate, pct, turnover）
+                var turnoverRate = JsonParserHelper.ExtractNullableDecimalValue(recordJson, "turnover_rate");
+                if (!turnoverRate.HasValue)
+                    turnoverRate = JsonParserHelper.ExtractNullableDecimalValue(recordJson, "pct");
+                if (!turnoverRate.HasValue)
+                    turnoverRate = JsonParserHelper.ExtractNullableDecimalValue(recordJson, "turnover");
+                record.TurnoverRate = turnoverRate;
+                
+                // 记录换手率解析情况（仅前20条记录，避免日志过多）
+                if (!_turnoverLogCount.HasValue)
+                    _turnoverLogCount = 0;
+                
+                if (_turnoverLogCount.Value < 20)
+                {
+                    if (!turnoverRate.HasValue && record.Volume > 0)
+                    {
+                        // 检查JSON中是否包含相关字段
+                        bool hasTurnoverRate = recordJson.Contains("\"turnover_rate\"");
+                        bool hasPct = recordJson.Contains("\"pct\"");
+                        bool hasTurnover = recordJson.Contains("\"turnover\"");
+                        
+                        Console.WriteLine($"[换手率解析] {record.StockCode} {record.TradeDate:yyyy-MM-dd}: " +
+                            $"成交量={record.Volume}, 换手率=NULL, " +
+                            $"JSON包含turnover_rate={hasTurnoverRate}, pct={hasPct}, turnover={hasTurnover}");
+                        _turnoverLogCount = _turnoverLogCount.Value + 1;
+                    }
+                    else if (turnoverRate.HasValue)
+                    {
+                        Console.WriteLine($"[换手率解析] {record.StockCode} {record.TradeDate:yyyy-MM-dd}: " +
+                            $"成交量={record.Volume}, 换手率={turnoverRate.Value:F2}%");
+                        _turnoverLogCount = _turnoverLogCount.Value + 1;
+                    }
+                }
 
                 var advanceCount = JsonParserHelper.ExtractNullableUShortValue(recordJson, "advance_count");
                 if (advanceCount.HasValue)

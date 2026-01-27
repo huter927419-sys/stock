@@ -89,9 +89,9 @@ namespace MQReceiver.Cache
                             int totalFiltered = filteredByCode + filteredByName;
                             if (totalFiltered > 0)
                             {
-                                Console.WriteLine($"[StockInfoCache] 过滤了 {totalFiltered} 条非A股代码");
-                                Console.WriteLine($"  • 按代码规则过滤: {filteredByCode} 条（指数/B股等）");
-                                Console.WriteLine($"  • 按名称关键词过滤: {filteredByName} 条（债券/基金等）");
+                                Console.WriteLine($"[StockInfoCache] 计算了 {totalFiltered} 条非A股代码");
+                                Console.WriteLine($"  • 按代码规则计算: {filteredByCode} 条（指数/B股等）");
+                                Console.WriteLine($"  • 按名称关键词计算: {filteredByName} 条（债券/基金等）");
                             }
                         }
                     }

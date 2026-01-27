@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -368,6 +369,32 @@ namespace MQReceiver.Services
 
                 if (records.Count > 0)
                 {
+                    // 统计换手率数据情况
+                    int withTurnoverRate = records.Count(r => r.TurnoverRate.HasValue);
+                    int withoutTurnoverRate = records.Count - withTurnoverRate;
+                    
+                    // 始终打印统计信息
+                    Console.WriteLine($"[日线数据统计] 共 {records.Count} 条，有换手率: {withTurnoverRate} 条，无换手率: {withoutTurnoverRate} 条");
+                    
+                    // 如果有无换手率的记录，打印前几条示例
+                    if (withoutTurnoverRate > 0 && records.Count > 0)
+                    {
+                        var samplesWithout = records.Where(r => !r.TurnoverRate.HasValue && r.Volume > 0).Take(3);
+                        foreach (var sample in samplesWithout)
+                        {
+                            Console.WriteLine($"[示例-无换手率] {sample.StockCode} {sample.TradeDate:yyyy-MM-dd}, 成交量={sample.Volume}");
+                        }
+                    }
+                    
+                    if (withTurnoverRate > 0 && records.Count > 0)
+                    {
+                        var samplesWith = records.Where(r => r.TurnoverRate.HasValue).Take(3);
+                        foreach (var sample in samplesWith)
+                        {
+                            Console.WriteLine($"[示例-有换手率] {sample.StockCode} {sample.TradeDate:yyyy-MM-dd}, 换手率={sample.TurnoverRate.Value:F2}%, 成交量={sample.Volume}");
+                        }
+                    }
+                    
                     int savedCount = dbWriter.SaveDailyData(records);
                     Console.WriteLine("成功保存 {0} 条日线数据到PostgreSQL", savedCount);
                 }
@@ -390,7 +417,7 @@ namespace MQReceiver.Services
                 if (records.Count > 0 && realTimeCache != null)
                 {
                     // 保护性更新：如果新数据中StockName为空，保留原有的StockName（来自码表）
-                    // 过滤ST股票和非A股股票
+                    // 计算ST股票和非A股股票
                     var filteredRecords = new List<RealTimeDataRecord>();
                     int stFilteredCount = 0;
                     
@@ -399,7 +426,7 @@ namespace MQReceiver.Services
                         if (string.IsNullOrEmpty(record.StockCode))
                             continue;
 
-                        // 过滤非A股股票
+                        // 计算非A股股票
                         if (!StockDataParser.IsValidStockCode(record.StockCode))
                             continue;
 
@@ -417,7 +444,7 @@ namespace MQReceiver.Services
                             stockName = StockInfoCache.Instance.GetStockName(record.StockCode);
                         }
                         
-                        // 过滤ST股票
+                        // 计算ST股票
                         if (StockDataParser.IsSTStock(stockName))
                         {
                             stFilteredCount++;
@@ -429,7 +456,7 @@ namespace MQReceiver.Services
                     
                     if (stFilteredCount > 0)
                     {
-                        Console.WriteLine($"[实时数据] 已过滤 {stFilteredCount} 只ST股票");
+                        Console.WriteLine($"[实时数据] 已计算 {stFilteredCount} 只ST股票");
                     }
 
                     realTimeCache.UpdateData(filteredRecords);

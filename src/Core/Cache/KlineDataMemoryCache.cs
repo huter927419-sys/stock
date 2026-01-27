@@ -13,7 +13,7 @@ namespace MQReceiver.Cache
 {
     /// <summary>
     /// K线数据内存缓存
-    /// 预加载所有股票的K线数据到内存，并预计算前复权价格，大幅提升过滤速度
+    /// 预加载所有股票的K线数据到内存，并预计算前复权价格，大幅提升计算速度
     /// </summary>
     public class KlineDataMemoryCache
     {
@@ -213,7 +213,7 @@ namespace MQReceiver.Cache
                 return new List<AggregatedCandle>();
             }
             
-            // 过滤到目标日期
+            // 计算到目标日期
             var filteredData = klineData.Where(k => k.TradeDate <= targetDate).ToList();
             if (filteredData.Count == 0)
             {

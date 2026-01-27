@@ -1,7 +1,7 @@
 namespace MQReceiver.Models
 {
     /// <summary>
-    /// 带历史K值的过滤结果
+    /// 带历史K值的计算结果
     /// </summary>
     public class FilterResultWithHistory
     {

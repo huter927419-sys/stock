@@ -8,8 +8,8 @@ using MQReceiver.Models;
 namespace MQReceiver.Helpers
 {
     /// <summary>
-    /// 过滤结果显示辅助类
-    /// 负责格式化、排序和颜色显示过滤结果
+    /// 计算结果显示辅助类
+    /// 负责格式化、排序和颜色显示计算结果
     /// </summary>
     public static class FilterDisplayHelper
     {

@@ -5,7 +5,7 @@ using MQReceiver.Models;
 namespace MQReceiver.Events
 {
     /// <summary>
-    /// 过滤结果事件参数
+    /// 计算结果事件参数
     /// 用于解耦 FilterService 与 UI 层
     /// </summary>
     public class FilterResultEventArgs : EventArgs
@@ -51,12 +51,12 @@ namespace MQReceiver.Events
         public List<FilterResultWithHistory> Table8Results { get; set; }
 
         /// <summary>
-        /// 过滤执行时间
+        /// 计算执行时间
         /// </summary>
         public DateTime FilterTime { get; set; }
 
         /// <summary>
-        /// 过滤耗时（秒）
+        /// 计算耗时（秒）
         /// </summary>
         public double ElapsedSeconds { get; set; }
 

@@ -63,11 +63,11 @@ namespace MQReceiver.Repositories
                 INSERT INTO stock_daily_data (
                     stock_code, market_code, trade_date, trade_datetime, time_stamp,
                     open_price, high_price, low_price, close_price,
-                    volume, amount, advance_count, decline_count, data_source
+                    volume, amount, turnover_rate, advance_count, decline_count, data_source
                 ) VALUES (
                     @stock_code, @market_code, @trade_date, @trade_datetime, @time_stamp,
                     @open_price, @high_price, @low_price, @close_price,
-                    @volume, @amount, @advance_count, @decline_count, @data_source
+                    @volume, @amount, @turnover_rate, @advance_count, @decline_count, @data_source
                 ) ON CONFLICT (stock_code, trade_date) DO UPDATE SET
                     open_price = EXCLUDED.open_price,
                     high_price = EXCLUDED.high_price,
@@ -75,17 +75,10 @@ namespace MQReceiver.Repositories
                     close_price = EXCLUDED.close_price,
                     volume = EXCLUDED.volume,
                     amount = EXCLUDED.amount,
+                    turnover_rate = EXCLUDED.turnover_rate,
                     advance_count = EXCLUDED.advance_count,
                     decline_count = EXCLUDED.decline_count,
-                    update_time = CURRENT_TIMESTAMP
-                WHERE stock_daily_data.open_price IS DISTINCT FROM EXCLUDED.open_price
-                   OR stock_daily_data.high_price IS DISTINCT FROM EXCLUDED.high_price
-                   OR stock_daily_data.low_price IS DISTINCT FROM EXCLUDED.low_price
-                   OR stock_daily_data.close_price IS DISTINCT FROM EXCLUDED.close_price
-                   OR stock_daily_data.volume IS DISTINCT FROM EXCLUDED.volume
-                   OR stock_daily_data.amount IS DISTINCT FROM EXCLUDED.amount
-                   OR COALESCE(stock_daily_data.advance_count, 0) IS DISTINCT FROM COALESCE(EXCLUDED.advance_count, 0)
-                   OR COALESCE(stock_daily_data.decline_count, 0) IS DISTINCT FROM COALESCE(EXCLUDED.decline_count, 0)";
+                    update_time = CURRENT_TIMESTAMP";
 
             int totalSaved = 0;
             int batchSize = 500;
@@ -122,6 +115,21 @@ namespace MQReceiver.Repositories
                                     command.Parameters.AddWithValue("@close_price", record.ClosePrice);
                                     command.Parameters.AddWithValue("@volume", record.Volume);
                                     command.Parameters.AddWithValue("@amount", record.Amount);
+                                    // TurnoverRate: 可空decimal，换手率（%）
+                                    var turnoverRateValue = record.TurnoverRate.HasValue ? (object)record.TurnoverRate.Value : DBNull.Value;
+                                    command.Parameters.Add(new NpgsqlParameter("@turnover_rate", NpgsqlDbType.Numeric)
+                                    {
+                                        Value = turnoverRateValue
+                                    });
+                                    
+                                    // 记录换手率保存情况（仅前20条记录）
+                                    if (totalSaved <= 20)
+                                    {
+                                        Console.WriteLine($"[保存换手率] {record.StockCode} {record.TradeDate:yyyy-MM-dd}: " +
+                                            $"TurnoverRate={(record.TurnoverRate.HasValue ? record.TurnoverRate.Value.ToString("F2") + "%" : "NULL")}, " +
+                                            $"保存值={(turnoverRateValue == DBNull.Value ? "DBNull" : turnoverRateValue.ToString())}, " +
+                                            $"成交量={record.Volume}");
+                                    }
                                     // AdvanceCount/DeclineCount: ushort -> short, cap at short.MaxValue to prevent overflow
                                     command.Parameters.Add(new NpgsqlParameter("@advance_count", NpgsqlDbType.Smallint)
                                     {
@@ -179,11 +187,11 @@ namespace MQReceiver.Repositories
                     connection.Open();
 
                     // 只获取A股股票代码，且满足数据质量要求
-                    // 在SQL层面就过滤掉非A股、ST股票、退市股票等
+                    // 在SQL层面就计算掉非A股、ST股票、退市股票等
                     // 1. 股票代码符合A股格式
                     // 2. 排除000000-000199范围（指数/债券指数）
                     // 3. 排除已知的无效代码（黑名单）
-                    // 4. 通过stock_info表过滤ST股票和无效股票
+                    // 4. 通过stock_info表计算ST股票和无效股票
                     // 5. 最近一年内至少有200个交易日的数据
                     // 6. 最新数据日期在数据库最新日期的30天内（排除退市股票）
                     string sql = @"
@@ -197,10 +205,10 @@ namespace MQReceiver.Repositories
                                 MAX(d.trade_date) as last_date,
                                 MIN(d.trade_date) as first_date
                             FROM stock_daily_data d
-                            -- 关联 stock_info 表，获取股票信息用于过滤
+                            -- 关联 stock_info 表，获取股票信息用于计算
                             LEFT JOIN stock_info i ON d.stock_code = i.stock_code
                             WHERE d.trade_date >= (SELECT latest_date FROM max_date) - INTERVAL '365 days'
-                              -- 1. 股票代码格式过滤（A股、创业板、科创板）
+                              -- 1. 股票代码格式计算（A股、创业板、科创板）
                               AND d.stock_code ~ '^(600|601|603|605|688|000|001|002|003|300|301)[0-9]{3}$'
                               -- 2. 排除000000-000199范围（几乎全是指数和债券指数）
                               AND NOT (d.stock_code ~ '^000[0-1][0-9]{2}$')
@@ -213,7 +221,7 @@ namespace MQReceiver.Repositories
                                   '000018', '000033', '000046', '000052', '000053', '000073', '000077', '000816',
                                   '000161', '000847', '000854'
                               )
-                              -- 4. 通过 stock_info 表过滤（如果表中有数据）
+                              -- 4. 通过 stock_info 表计算（如果表中有数据）
                               AND (i.stock_code IS NULL OR (
                                   -- 只选择有效的股票（is_active = TRUE）
                                   (i.is_active IS NULL OR i.is_active = TRUE)
@@ -706,6 +714,149 @@ namespace MQReceiver.Repositories
             }
 
             return totalUpdated;
+        }
+
+        /// <summary>
+        /// 获取指定日期的成交金额（元）和换手率（%）
+        /// </summary>
+        public (decimal? Amount, decimal? TurnoverRate) GetYesterdayAmountAndTurnoverRate(string stockCode, DateTime tradeDate)
+        {
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    string sql = @"SELECT amount, turnover_rate FROM stock_daily_data WHERE stock_code = @stock_code AND trade_date = @trade_date";
+                    using (var cmd = new NpgsqlCommand(sql, connection))
+                    {
+                        cmd.Parameters.AddWithValue("@stock_code", stockCode);
+                        cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            if (reader.Read())
+                            {
+                                decimal amount = reader.GetDecimal(0);
+                                decimal? turnover = reader.IsDBNull(1) ? (decimal?)null : reader.GetDecimal(1);
+                                return (amount, turnover);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Npgsql.PostgresException ex) when (ex.SqlState == "42703")
+            {
+                try
+                {
+                    using (var connection = new NpgsqlConnection(_connectionString))
+                    {
+                        connection.Open();
+                        string sql = @"SELECT amount FROM stock_daily_data WHERE stock_code = @stock_code AND trade_date = @trade_date";
+                        using (var cmd = new NpgsqlCommand(sql, connection))
+                        {
+                            cmd.Parameters.AddWithValue("@stock_code", stockCode);
+                            cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                            var v = cmd.ExecuteScalar();
+                            return (v != null && v != DBNull.Value ? (decimal?)Convert.ToDecimal(v) : null, null);
+                        }
+                    }
+                }
+                catch { return (null, null); }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"GetYesterdayAmountAndTurnoverRate [{stockCode}]: {ex.Message}");
+            }
+            return (null, null);
+        }
+
+        /// <summary>
+        /// 批量获取指定日期的成交金额（元）和换手率（%），用于性能优化
+        /// </summary>
+        public Dictionary<string, (decimal? Amount, decimal? TurnoverRate)> GetYesterdayAmountAndTurnoverRateBatch(List<string> stockCodes, DateTime tradeDate)
+        {
+            var result = new Dictionary<string, (decimal? Amount, decimal? TurnoverRate)>();
+            
+            if (stockCodes == null || stockCodes.Count == 0)
+                return result;
+            
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    
+                    // 批量查询：使用 ANY 子句一次性查询所有股票
+                    string sql = @"
+                        SELECT stock_code, amount, turnover_rate
+                        FROM stock_daily_data
+                        WHERE stock_code = ANY(@stock_codes) AND trade_date = @trade_date";
+                    
+                    using (var cmd = new NpgsqlCommand(sql, connection))
+                    {
+                        // 使用数组参数（PostgreSQL数组类型）
+                        var stockCodesParam = new NpgsqlParameter("@stock_codes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                        {
+                            Value = stockCodes.ToArray()
+                        };
+                        cmd.Parameters.Add(stockCodesParam);
+                        cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                        
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string code = reader.GetString(0);
+                                decimal amount = reader.GetDecimal(1);
+                                decimal? turnover = reader.IsDBNull(2) ? (decimal?)null : reader.GetDecimal(2);
+                                result[code] = (amount, turnover);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Npgsql.PostgresException ex) when (ex.SqlState == "42703")
+            {
+                // turnover_rate 列不存在时，仅查 amount
+                try
+                {
+                    using (var connection = new NpgsqlConnection(_connectionString))
+                    {
+                        connection.Open();
+                        string sql = @"
+                            SELECT stock_code, amount
+                            FROM stock_daily_data
+                            WHERE stock_code = ANY(@stock_codes) AND trade_date = @trade_date";
+                        using (var cmd = new NpgsqlCommand(sql, connection))
+                        {
+                            var stockCodesParam = new NpgsqlParameter("@stock_codes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                            {
+                                Value = stockCodes.ToArray()
+                            };
+                            cmd.Parameters.Add(stockCodesParam);
+                            cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                            using (var reader = cmd.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    string code = reader.GetString(0);
+                                    decimal amount = reader.GetDecimal(1);
+                                    result[code] = (amount, null);
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    Console.WriteLine($"GetYesterdayAmountAndTurnoverRateBatch (fallback): {ex2.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"GetYesterdayAmountAndTurnoverRateBatch: {ex.Message}");
+            }
+            
+            return result;
         }
 
         #endregion

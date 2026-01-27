@@ -59,7 +59,7 @@ namespace MQReceiver.Calculators
                     CalculateAndCacheKD(stockCode, targetDate, "month");
                     CalculateAndCacheKD(stockCode, targetDate, "quarter");
                     
-                    // 计算昨天的KD（用于过滤条件判断）
+                    // 计算昨天的KD（用于计算条件判断）
                     DateTime yesterday = GetYesterdayDate(targetDate);
                     CalculateAndCacheKD(stockCode, yesterday, "week");
                     CalculateAndCacheKD(stockCode, yesterday, "month");

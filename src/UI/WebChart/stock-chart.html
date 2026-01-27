@@ -64,11 +64,14 @@
         .legend {
             position: absolute;
             top: 5px;
-            right: 60px;
+            right: 250px;
             font-size: 11px;
             z-index: 10;
             display: flex;
             gap: 10px;
+            background-color: rgba(26, 26, 46, 0.8);
+            padding: 4px 8px;
+            border-radius: 3px;
         }
         .legend-item {
             display: flex;
@@ -231,7 +234,7 @@
             });
             mainChart.priceScale('right').applyOptions({
                 visible: true,
-                scaleMargins: { top: 0.05, bottom: 0.25 },
+                scaleMargins: { top: 0.05, bottom: 0.25, right: 0.12 },
                 borderVisible: true,
                 borderColor: '#2B2B43',
                 entireTextOnly: false,
@@ -244,26 +247,42 @@
                 ...kdChartOptions,
                 height: document.getElementById('kValueChart').clientHeight,
             });
-            // 周K值 - 红色
+            // 配置K值图表的价格轴，增加右边距避免标签遮挡
+            kValueChart.priceScale('right').applyOptions({
+                visible: true,
+                scaleMargins: { top: 0.1, bottom: 0.1, right: 0.12 },
+                borderVisible: true,
+                borderColor: '#2B2B43',
+                entireTextOnly: false,
+                ticksVisible: true,
+                drawTicks: true,
+            });
+            // 周K值 - 红色（隐藏右侧标签，使用自定义图例）
             weeklyKLineSeries = kValueChart.addLineSeries({
                 color: '#FF6B6B',
                 lineWidth: 1.5,
-                title: '周K',
+                title: '',
                 priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+                lastValueVisible: false,
+                priceLineVisible: false,
             });
-            // 月K值 - 青色
+            // 月K值 - 青色（隐藏右侧标签，使用自定义图例）
             monthlyKLineSeries = kValueChart.addLineSeries({
                 color: '#4ECDC4',
                 lineWidth: 1.5,
-                title: '月K',
+                title: '',
                 priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+                lastValueVisible: false,
+                priceLineVisible: false,
             });
-            // 季K值 - 黄色
+            // 季K值 - 黄色（隐藏右侧标签，使用自定义图例）
             quarterlyKLineSeries = kValueChart.addLineSeries({
                 color: '#FFE66D',
                 lineWidth: 1.5,
-                title: '季K',
+                title: '',
                 priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+                lastValueVisible: false,
+                priceLineVisible: false,
             });
 
             // KD带状图（已隐藏，跳过初始化以提升性能）

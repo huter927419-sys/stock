@@ -7,7 +7,7 @@ using MQReceiver.Models;
 namespace MQReceiver.ViewModels
 {
     /// <summary>
-    /// 过滤结果视图模型
+    /// 计算结果视图模型
     /// </summary>
     public class FilterResultViewModel : INotifyPropertyChanged
     {

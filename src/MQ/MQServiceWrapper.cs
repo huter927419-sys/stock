@@ -16,7 +16,7 @@ namespace MQReceiver.Services
     /// <summary>
     /// MQ服务包装器 - 支持UI日志输出
     /// 将日志通过事件发送到UI层显示
-    /// 支持注入外部缓存以实现与过滤服务的数据共享
+    /// 支持注入外部缓存以实现与计算服务的数据共享
     /// </summary>
     public class MQServiceWrapper : IDisposable
     {
@@ -55,7 +55,7 @@ namespace MQReceiver.Services
         public RealTimeDataCache RealTimeCache => realTimeCache;
 
         /// <summary>
-        /// 设置外部缓存（用于与过滤服务共享）
+        /// 设置外部缓存（用于与计算服务共享）
         /// 必须在Start()之前调用
         /// </summary>
         public void SetExternalCache(RealTimeDataCache cache)
@@ -433,7 +433,7 @@ namespace MQReceiver.Services
 
                 if (records.Count > 0 && realTimeCache != null)
                 {
-                    // 过滤ST股票和非A股股票
+                    // 计算ST股票和非A股股票
                     var filteredRecords = new List<RealTimeDataRecord>();
                     int stFilteredCount = 0;
                     
@@ -442,7 +442,7 @@ namespace MQReceiver.Services
                         if (string.IsNullOrEmpty(record.StockCode))
                             continue;
 
-                        // 过滤非A股股票
+                        // 计算非A股股票
                         if (!StockDataParser.IsValidStockCode(record.StockCode))
                             continue;
 
@@ -459,7 +459,7 @@ namespace MQReceiver.Services
                             stockName = StockInfoCache.Instance.GetStockName(record.StockCode);
                         }
                         
-                        // 过滤ST股票
+                        // 计算ST股票
                         if (StockDataParser.IsSTStock(stockName))
                         {
                             stFilteredCount++;
@@ -471,7 +471,7 @@ namespace MQReceiver.Services
                     
                     if (stFilteredCount > 0)
                     {
-                        Log($"[实时数据] 已过滤 {stFilteredCount} 只ST股票");
+                        Log($"[实时数据] 已计算 {stFilteredCount} 只ST股票");
                     }
 
                     realTimeCache.UpdateData(filteredRecords);

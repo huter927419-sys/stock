@@ -135,7 +135,7 @@ namespace MQReceiver.Helpers
 
             return string.Format(
                 "Host={0};Port={1};Database={2};Username={3};Password={4};" +
-                "Pooling=true;MinPoolSize={5};MaxPoolSize={6};Timeout=30;CommandTimeout=30;",
+                "Pooling=true;MinPoolSize={5};MaxPoolSize={6};Timeout=30;CommandTimeout=30;Include Error Detail=true;",
                 host, port, database, username, password, minPoolSize, maxPoolSize);
         }
 
@@ -149,7 +149,7 @@ namespace MQReceiver.Helpers
 
             return string.Format(
                 "Host={0};Port={1};Database={2};Username={3};Password={4};" +
-                "Pooling=true;MinPoolSize={5};MaxPoolSize={6};Timeout=30;CommandTimeout={7};",
+                "Pooling=true;MinPoolSize={5};MaxPoolSize={6};Timeout=30;CommandTimeout={7};Include Error Detail=true;",
                 config.Host, config.Port, config.Database, config.Username, config.Password,
                 config.MinPoolSize, config.MaxPoolSize, config.CommandTimeout);
         }

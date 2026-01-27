@@ -82,6 +82,12 @@ namespace MQReceiver.Helpers
 
                         // 6. 创建性能优化索引
                         CreatePerformanceIndexes(connection);
+
+                        // 7. 确保日线表有换手率列（用于表格计算：昨天换手率>3%）
+                        EnsureTurnoverRateColumn(connection);
+
+                        // 8. 更新数据库架构（自动添加缺失的字段）
+                        DatabaseSchemaUpdater.UpdateSchema();
                     }
 
                     Thread.MemoryBarrier();
@@ -269,7 +275,17 @@ namespace MQReceiver.Helpers
                 ON stock_realtime_data(stock_code);
             ";
 
-            ExecuteSql(connection, sql, "performance_indexes");
+                ExecuteSql(connection, sql, "performance_indexes");
+        }
+
+        /// <summary>
+        /// 确保 stock_daily_data 有 turnover_rate 列（换手率，%）
+        /// 用于表格统一计算：昨天换手率&gt;3%。无此列时 ADD COLUMN，已有则忽略。
+        /// </summary>
+        private static void EnsureTurnoverRateColumn(NpgsqlConnection connection)
+        {
+            string sql = "ALTER TABLE stock_daily_data ADD COLUMN IF NOT EXISTS turnover_rate NUMERIC(8,4);";
+            ExecuteSql(connection, sql, "turnover_rate column");
         }
 
         /// <summary>

@@ -24,7 +24,7 @@ namespace MQReceiver.Services
         private readonly ExRightsAdjustmentCalculator exRightsCalculator;
         private readonly RealTimeDataCache realTimeCache;
         
-        // 缓存最后计算的KD值（用于过滤面板，确保与图表一致）
+        // 缓存最后计算的KD值（用于计算面板，确保与图表一致）
         private readonly Dictionary<string, (double k, double d)> _lastKDValues = new Dictionary<string, (double k, double d)>();
 
         public ChartService() : this(null)
@@ -78,7 +78,7 @@ namespace MQReceiver.Services
                 chartData.DailyKline = LoadDailyKlineData(stockCode, days);
 
                 // 2. 并行计算周/月/季KD值（使用真实数据，不前复权）
-                // 重要：为了与过滤面板保持一致，KD计算必须使用完整历史数据
+                // 重要：为了与计算面板保持一致，KD计算必须使用完整历史数据
                 // 特别是季K需要至少9个季度（约27个月）的数据
                 if (chartData.DailyKline.Count > 0)
                 {
@@ -86,7 +86,7 @@ namespace MQReceiver.Services
                     // Console.WriteLine($"[图表加载] {stockCode}: 开始计算KD指标，K线数据量={chartData.DailyKline.Count}");
                     
                     // 加载真实数据（不前复权）用于KD计算
-                    // 对于KD计算，必须加载所有历史数据（days=0），确保与过滤面板一致
+                    // 对于KD计算，必须加载所有历史数据（days=0），确保与计算面板一致
                     var realKlineData = LoadDailyKlineDataReal(stockCode, 0); // 强制加载所有历史数据
                     
                     // 并行计算3个周期的KD指标
@@ -148,14 +148,14 @@ namespace MQReceiver.Services
                 chartData.DailyKline = klineData;
 
                 // 2. 并行计算周/月/季KD值（使用真实数据，不前复权）
-                // 重要：为了与过滤面板保持一致，KD计算必须使用完整历史数据
+                // 重要：为了与计算面板保持一致，KD计算必须使用完整历史数据
                 if (klineData.Count > 0)
                 {
                     // 性能优化：减少日志输出
                     // Console.WriteLine($"[图表加载] {stockCode}: 开始计算KD指标，K线数据量={klineData.Count}");
                     
                     // 加载真实数据（不前复权）用于KD计算
-                    // 对于KD计算，必须加载所有历史数据（days=0），确保与过滤面板一致
+                    // 对于KD计算，必须加载所有历史数据（days=0），确保与计算面板一致
                     var realKlineData = await Task.Run(() => LoadDailyKlineDataReal(stockCode, 0)); // 强制加载所有历史数据
                     
                     // 并行计算3个周期的KD指标（使用平滑插值）
@@ -296,11 +296,11 @@ namespace MQReceiver.Services
                     ));
                 }
                 
-                // 保存最后一个周期的KD值（用于过滤面板，确保与图表一致）
+                // 保存最后一个周期的KD值（用于计算面板，确保与图表一致）
                 if (kdByPeriod.Count > 0)
                 {
                     var lastPeriod = kdByPeriod.Last();
-                    // 将最后一个周期的KD值存储，供外部获取（用于过滤面板）
+                    // 将最后一个周期的KD值存储，供外部获取（用于计算面板）
                     string cacheKey = $"{stockCode}_{cycleType}";
                     _lastKDValues[cacheKey] = (lastPeriod.k, lastPeriod.d);
                 }
@@ -324,29 +324,49 @@ namespace MQReceiver.Services
                     }
                     else
                     {
-                        var currentPeriod = kdByPeriod[periodIdx];
-                        int totalDaysInPeriod = currentPeriod.endIdx - currentPeriod.startIdx + 1;
-                        int dayIndexInPeriod = i - currentPeriod.startIdx;
-
-                        // 第一个周期或只有一天的周期，不插值
-                        if (periodIdx == 0 || totalDaysInPeriod == 1)
+                        // 边界检查：确保periodIdx在有效范围内
+                        if (periodIdx >= 0 && periodIdx < kdByPeriod.Count)
                         {
-                            kValue = currentPeriod.k;
-                            dValue = currentPeriod.d;
+                            var currentPeriod = kdByPeriod[periodIdx];
+                            int totalDaysInPeriod = currentPeriod.endIdx - currentPeriod.startIdx + 1;
+                            int dayIndexInPeriod = i - currentPeriod.startIdx;
+
+                            // 第一个周期或只有一天的周期，不插值
+                            if (periodIdx == 0 || totalDaysInPeriod == 1)
+                            {
+                                kValue = currentPeriod.k;
+                                dValue = currentPeriod.d;
+                            }
+                            else
+                            {
+                                // 线性插值：从上一周期平滑过渡到当前周期
+                                // 确保上一周期索引有效
+                                if (periodIdx - 1 >= 0 && periodIdx - 1 < kdByPeriod.Count)
+                                {
+                                    var prevPeriod = kdByPeriod[periodIdx - 1];
+                                    double ratio = (double)dayIndexInPeriod / (totalDaysInPeriod - 1);
+                                    
+                                    kValue = prevPeriod.k + (currentPeriod.k - prevPeriod.k) * ratio;
+                                    dValue = prevPeriod.d + (currentPeriod.d - prevPeriod.d) * ratio;
+                                }
+                                else
+                                {
+                                    // 如果无法获取上一周期，使用当前周期的值
+                                    kValue = currentPeriod.k;
+                                    dValue = currentPeriod.d;
+                                }
+                            }
+                            
+                            // 更新最后有效值
+                            lastK = kValue;
+                            lastD = dValue;
                         }
                         else
                         {
-                            // 线性插值：从上一周期平滑过渡到当前周期
-                            var prevPeriod = kdByPeriod[periodIdx - 1];
-                            double ratio = (double)dayIndexInPeriod / (totalDaysInPeriod - 1);
-                            
-                            kValue = prevPeriod.k + (currentPeriod.k - prevPeriod.k) * ratio;
-                            dValue = prevPeriod.d + (currentPeriod.d - prevPeriod.d) * ratio;
+                            // periodIdx超出范围，使用默认值
+                            kValue = lastK;
+                            dValue = lastD;
                         }
-                        
-                        // 更新最后有效值
-                        lastK = kValue;
-                        lastD = dValue;
                     }
 
                     // 确保每个K线日期都有对应的KD值，实现完全对齐
@@ -372,8 +392,8 @@ namespace MQReceiver.Services
 
         /// <summary>
         /// 获取指定日期的KD值（使用与图表相同的计算逻辑，确保一致性）
-        /// 这个方法供过滤面板使用，确保面板显示的KD值与图表右侧显示的KD值一致
-        /// 图表右侧显示的是最后一个交易日的插值后的KD值（kdData.Last()），所以这里也返回最后一个交易日的KD值
+        /// 按 targetDate 取「该日或之前最近一个交易日」的KD，用于金叉等需要「今日/昨日」对比的计算。
+        /// 若 targetDate 晚于所有K线日期则用最后一笔；若早于第一笔则返回 null。
         /// </summary>
         /// <param name="stockCode">股票代码</param>
         /// <param name="targetDate">目标日期</param>
@@ -393,18 +413,17 @@ namespace MQReceiver.Services
                 if (kdData == null || kdData.Count == 0)
                     return null;
 
-                // 图表右侧显示的是最后一个交易日的插值后的KD值（kdData.Last()）
-                // 所以这里也返回最后一个交易日的KD值，确保与图表一致
-                var lastKD = kdData.LastOrDefault();
-                if (lastKD == null)
+                // 取 targetDate 及之前最近的交易日的KD值，使 今日/昨日 能区分，金叉等公式才有效
+                var kdAtDate = kdData.Where(k => k.Date <= targetDate.Date).OrderByDescending(k => k.Date).FirstOrDefault();
+                if (kdAtDate == null)
                     return null;
 
                 return new KDResult
                 {
                     StockCode = stockCode,
-                    Date = lastKD.Date,
-                    K = (decimal)lastKD.K,
-                    D = (decimal)lastKD.D,
+                    Date = kdAtDate.Date,
+                    K = (decimal)kdAtDate.K,
+                    D = (decimal)kdAtDate.D,
                     RSV = 0
                 };
             }

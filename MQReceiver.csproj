@@ -166,6 +166,8 @@
     <Reference Include="PresentationFramework" />
     <Reference Include="System.Xaml" />
     <Reference Include="WindowsBase" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
     <Reference Include="StackExchange.Redis">
       <HintPath>packages\StackExchange.Redis.2.6.122\lib\net461\StackExchange.Redis.dll</HintPath>
     </Reference>
@@ -185,6 +187,7 @@
     <Compile Include="src\Core\Helpers\PerformanceAnalyzer.cs" />
     <Compile Include="src\Core\Helpers\DatabaseConnectionHelper.cs" />
     <Compile Include="src\Core\Helpers\DatabaseInitializer.cs" />
+    <Compile Include="src\Core\Helpers\DatabaseSchemaUpdater.cs" />
     <Compile Include="src\Core\Helpers\SafeConsole.cs" />
     <Compile Include="src\Core\Helpers\RedisHelper.cs" />
     <!-- src/Core/Models -->
