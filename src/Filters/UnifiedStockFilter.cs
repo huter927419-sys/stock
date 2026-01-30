@@ -86,14 +86,14 @@ namespace MQReceiver.Filters
             // 计算昨天的日期
             DateTime yesterdayDate = GetYesterdayDate(targetDate);
             
-            // 性能优化：批量查询所有股票的成交金额和换手率（减少数据库查询次数）
+            // 性能优化：批量查询所有股票的成交金额（仅用于昨天成交金额>=N亿，不查换手率）
             var validStockCodes = realTimeDataList
                 .Where(d => StockDataParser.IsValidStockCode(d.StockCode))
                 .Select(d => d.StockCode)
                 .ToList();
             
-            var amountAndTurnoverRateDict = _klineRepository.GetYesterdayAmountAndTurnoverRateBatch(validStockCodes, yesterdayDate);
-            Console.WriteLine($"[性能优化] 批量查询成交金额和换手率: {validStockCodes.Count}只股票, 查询到: {amountAndTurnoverRateDict.Count}条数据");
+            var amountDict = _klineRepository.GetYesterdayAmountBatch(validStockCodes, yesterdayDate);
+            Console.WriteLine($"[性能优化] 批量查询成交金额: {validStockCodes.Count}只股票, 查询到: {amountDict.Count}条数据");
 
             // 优化并行度：使用内存缓存后，可以使用更高的并行度
             // 批量计算器模式：使用全部CPU核心（内存操作，无IO瓶颈）
@@ -128,7 +128,7 @@ namespace MQReceiver.Filters
                         return;
                     }
 
-                    var result = ProcessStock(realTimeData, condition, targetDate, amountAndTurnoverRateDict, runDiagnose56);
+                    var result = ProcessStock(realTimeData, condition, targetDate, amountDict, runDiagnose56);
                     if (result != null)
                     {
                         results.Add(result);
@@ -209,7 +209,7 @@ namespace MQReceiver.Filters
         /// <summary>
         /// 处理单个股票
         /// </summary>
-        private FilterResultWithHistory ProcessStock(RealTimeDataRecord realTimeData, NewFilterCondition condition, DateTime targetDate, Dictionary<string, (decimal? Amount, decimal? TurnoverRate)> amountAndTurnoverRateDict = null, bool runDiagnose56 = false)
+        private FilterResultWithHistory ProcessStock(RealTimeDataRecord realTimeData, NewFilterCondition condition, DateTime targetDate, Dictionary<string, decimal?> amountDict = null, bool runDiagnose56 = false)
         {
             string stockCode = realTimeData.StockCode;
 
@@ -256,16 +256,16 @@ namespace MQReceiver.Filters
             decimal yesterdayMonthlyK = yesterdayMonthlyKD.K;
             decimal yesterdayQuarterlyK = yesterdayQuarterlyKD.K;
 
-            // 统一条件：昨天成交金额 >= N*1亿（提前获取，便于诊断与计算）
-            (decimal? amount, decimal? turnoverRate) amountAndRate;
-            if (amountAndTurnoverRateDict != null && amountAndTurnoverRateDict.TryGetValue(stockCode, out var cached))
-                amountAndRate = cached;
+            // 统一条件：昨天成交金额 >= N*1亿（仅用金额，无换手率过滤）
+            decimal? amount;
+            if (amountDict != null && amountDict.TryGetValue(stockCode, out var cached))
+                amount = cached;
             else
-                amountAndRate = _klineRepository.GetYesterdayAmountAndTurnoverRate(stockCode, yesterdayDate);
+                amount = _klineRepository.GetYesterdayAmountAndTurnoverRate(stockCode, yesterdayDate).Amount;
             decimal minAmount = condition.N * 100_000_000m;  // N 亿
 
             // 表格5/6 诊断：在「有KD且金额达标」的候选中统计各子条件
-            if (runDiagnose56 && (condition.FilterId == 5 || condition.FilterId == 6) && amountAndRate.amount != null && amountAndRate.amount >= minAmount)
+            if (runDiagnose56 && (condition.FilterId == 5 || condition.FilterId == 6) && amount != null && amount >= minAmount)
             {
                 decimal a2 = Math.Min(monthlyK, quarterlyK);
                 Interlocked.Increment(ref _diagCandidates);
@@ -287,7 +287,7 @@ namespace MQReceiver.Filters
             {
                 decimal a2 = Math.Min(monthlyK, quarterlyK);
                 // 只在诊断模式下输出前几个失败的候选（避免日志过多）
-                if (runDiagnose56 && _diagCandidates < 10 && amountAndRate.amount != null && amountAndRate.amount >= minAmount)
+                if (runDiagnose56 && _diagCandidates < 10 && amount != null && amount >= minAmount)
                 {
                     Console.WriteLine($"[条件5详细] {stockCode}: K1={weeklyK:F2} A2={a2:F2} 检查: K1<A2={weeklyK < a2} A2>=M1={a2 >= condition.M1} K1<M3={weeklyK < condition.M3}");
                 }
@@ -296,7 +296,7 @@ namespace MQReceiver.Filters
             if (!conditionMet)
                 return null;
 
-            if (amountAndRate.amount == null || amountAndRate.amount < minAmount)
+            if (amount == null || amount < minAmount)
                 return null;
 
             // 计算涨幅 - 优先使用实时数据，无效时从日线数据获取

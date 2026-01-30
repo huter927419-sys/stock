@@ -6,8 +6,14 @@ namespace MQReceiver.Filters
     /// <summary>
     /// 新6个计算条件的通用计算器条件类
     /// 全域：M1=78, M2=65, M3=50, M4=30, N=5（默认）
-    /// A1=MAX(K2,K3), A2=MIN(K2,K3), A3=K1>D1且K2>D2且K3>D3, A4=K2>D2且K3>D3, A5=K1>D1
-    /// 统一：昨天成交金额>=N*1亿
+    /// 全域变量：A1=MAX(K2,K3)；A2=MIN(K2,K3)；A3=K1>D1 AND K2>D2 AND K3>D3；A4=K2>D2 AND K3>D3；A5=K1>D1
+    /// 统一：昨天成交金额>=N*100000000（N亿）
+    /// 条件1：K1>A1 AND A2>=M1 AND A3 → 强多排列
+    /// 条件2：K1>A1 AND A2>=M2 AND A2&lt;M1 AND A3 → 中多排列
+    /// 条件3：K1>M3 AND K1&lt;A1 AND A2>=M1 AND A4 → 强多缠绕
+    /// 条件4：K1>M3 AND K1&lt;A1 AND A2>=M2 AND A2&lt;M1 AND A4 → 中多缠绕
+    /// 条件5：K1&lt;A2 AND A2>=M1 AND K1&lt;M3 → 强多反弹
+    /// 条件6：K1&lt;A2 AND A2>=M2 AND A2&lt;M1 AND K1&lt;M4 → 中多反弹
     /// </summary>
     public class NewFilterCondition
     {

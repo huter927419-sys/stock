@@ -62,6 +62,14 @@ namespace MQReceiver.Repositories
         /// <param name="tradeDate">交易日期（通常为昨日）</param>
         /// <returns>股票代码 -> (成交金额, 换手率) 的字典</returns>
         Dictionary<string, (decimal? Amount, decimal? TurnoverRate)> GetYesterdayAmountAndTurnoverRateBatch(List<string> stockCodes, DateTime tradeDate);
+
+        /// <summary>
+        /// 批量获取指定日期的成交金额（元），仅用于过滤条件（昨天成交金额>=N亿），不查换手率。
+        /// </summary>
+        /// <param name="stockCodes">股票代码列表</param>
+        /// <param name="tradeDate">交易日期（通常为昨日）</param>
+        /// <returns>股票代码 -> 成交金额 的字典</returns>
+        Dictionary<string, decimal?> GetYesterdayAmountBatch(List<string> stockCodes, DateTime tradeDate);
     }
 
     /// <summary>

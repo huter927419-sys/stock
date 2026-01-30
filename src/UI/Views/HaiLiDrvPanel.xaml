@@ -1,0 +1,38 @@
+<UserControl x:Class="MQReceiver.Views.HaiLiDrvPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#252526" BorderBrush="#3F3F46" BorderThickness="1"
+             MinWidth="300" MinHeight="200" Margin="5">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 面板标题栏 -->
+        <Border Grid.Row="0" Background="#2D2D30" Padding="5,3" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+            <TextBlock Name="PanelTitleText" Text="面板1" 
+                       Foreground="#D4D4D4" FontSize="12" FontWeight="Bold"/>
+        </Border>
+
+        <!-- 数据列表 -->
+        <DataGrid Name="DataListGrid" Grid.Row="1" 
+                  AutoGenerateColumns="False"
+                  Background="#1E1E1E" 
+                  Foreground="#D4D4D4"
+                  BorderBrush="#3F3F46"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  SelectionMode="Single"
+                  CanUserResizeColumns="False"
+                  CanUserReorderColumns="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="代码" Binding="{Binding StockCode}" Width="70"/>
+                <DataGridTextColumn Header="名称" Binding="{Binding StockName}" Width="80"/>
+                <DataGridTextColumn Header="最新价" Binding="{Binding NewPrice, StringFormat=F2}" Width="60"/>
+                <DataGridTextColumn Header="涨跌幅" Binding="{Binding PriceChange, StringFormat='F2%'}" Width="60"/>
+                <DataGridTextColumn Header="成交量" Binding="{Binding Volume, StringFormat=N0}" Width="80"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

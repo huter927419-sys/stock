@@ -26,6 +26,13 @@ namespace MQReceiver.Views
         private DispatcherTimer _saveBoundsDebounce;
         private EventHandler _onLeftOrTopChangedHandler;
 
+        // 盘中图表卡顿优化：同股票短时间内复用图表数据 + 预序列化 JSON，避免重复拉库与重复序列化
+        private static readonly Dictionary<string, (ChartData data, DateTime cachedAt, string chartJson)> _chartDataCache =
+            new Dictionary<string, (ChartData, DateTime, string)>();
+        private static readonly object _chartDataCacheLock = new object();
+        private const int ChartCacheTTLSecondsTrading = 20;  // 盘中 20 秒
+        private const int ChartCacheTTLSecondsNonTrading = 60; // 盘外 60 秒
+
         public WebChartWindow(string stockCode) : this(stockCode, null)
         {
         }
@@ -33,47 +40,46 @@ namespace MQReceiver.Views
         public WebChartWindow(string stockCode, RealTimeDataCache realTimeCache)
         {
             InitializeComponent();
-            RestoreWindowBounds();
+            ApplyInitialPlacement();
             _stockCode = stockCode;
             _realTimeCache = realTimeCache;
-            
-            // 允许多个图表窗口同时打开
             this.Owner = null;
-            
-            // 设置初始标题
             this.Title = $"加载中... - {stockCode}";
-            
-            // 同步加载数据（确保WebView初始化时数据已准备好）
-            Console.WriteLine($"═══════════════════════════════════════════════════════");
-            Console.WriteLine($"[图表数据加载] 开始同步加载股票: {stockCode}");
-            var chartService = new ChartService(_realTimeCache);
-            _chartData = chartService.LoadChartData(stockCode, 0);
-            
-            if (_chartData != null)
-            {
-                Console.WriteLine($"[图表数据加载] ✅ 数据加载成功");
-                Console.WriteLine($"  - 日K线: {_chartData.DailyKline?.Count ?? 0} 条");
-                Console.WriteLine($"  - 周KD: {_chartData.WeeklyKD?.Count ?? 0} 条");
-                this.Title = $"股票图表 - {_chartData.StockName} ({_chartData.StockCode})";
-            }
-            else
-            {
-                Console.WriteLine($"[图表数据加载] ❌ 数据加载失败");
-            }
-            Console.WriteLine($"═══════════════════════════════════════════════════════");
             InitializeBoundsPersistence();
         }
 
         public WebChartWindow(ChartData chartData)
         {
             InitializeComponent();
-            RestoreWindowBounds();
+            ApplyInitialPlacement();
             _chartData = chartData;
             if (chartData != null)
-            {
                 this.Title = $"股票图表 - {chartData.StockName} ({chartData.StockCode})";
-            }
             InitializeBoundsPersistence();
+        }
+
+        /// <summary>
+        /// 统一初始放置：双屏=副屏最大化，单屏=主屏中间，否则恢复上次位置。
+        /// </summary>
+        private void ApplyInitialPlacement()
+        {
+            bool useFixed = AppConfigProvider.Instance.GetBool("ChartWindow_OpenOnSecondaryScreenAndMaximize", true);
+            var secondary = GetSecondaryScreen();
+            if (useFixed && secondary != null)
+                ApplySecondaryScreenAndMaximize();
+            else if (secondary == null)
+                ApplyPrimaryScreenPlacement(1400, 950);
+            else
+                RestoreWindowBounds();
+        }
+
+        /// <summary>
+        /// 是否为固定位置模式（双屏副屏最大化）：此模式下不保存窗口位置。
+        /// </summary>
+        private static bool IsFixedPlacementMode()
+        {
+            return AppConfigProvider.Instance.GetBool("ChartWindow_OpenOnSecondaryScreenAndMaximize", true)
+                && GetSecondaryScreen() != null;
         }
 
         /// <summary>
@@ -162,6 +168,46 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
+        /// 获取副屏（非主屏）：多屏时返回第一个非主屏，单屏返回 null。
+        /// 用于：面板在主屏，K 线图在副屏打开并最大化。
+        /// </summary>
+        private static System.Windows.Forms.Screen GetSecondaryScreen()
+        {
+            try
+            {
+                var all = System.Windows.Forms.Screen.AllScreens;
+                if (all == null || all.Length < 2) return null;
+                var primary = System.Windows.Forms.Screen.PrimaryScreen;
+                foreach (var s in all)
+                {
+                    if (s != primary) return s;
+                }
+                return null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// 将 K 线图放到副屏并最大化（面板保留在主屏，图表在另一块屏上最大化）。
+        /// </summary>
+        private void ApplySecondaryScreenAndMaximize()
+        {
+            try
+            {
+                var secondary = GetSecondaryScreen();
+                if (secondary == null) return;
+                var wa = secondary.WorkingArea;
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = wa.X;
+                Top = wa.Y;
+                Width = wa.Width;
+                Height = wa.Height;
+                WindowState = WindowState.Maximized;
+            }
+            catch { }
+        }
+
+        /// <summary>
         /// 初始化窗口位置/大小的持久化：防抖保存到配置。移动或 resize 后不等关闭即写入，
         /// 新开的 K 线图会出现在上次放置的屏幕（含附加屏）。
         /// </summary>
@@ -191,6 +237,8 @@ namespace MQReceiver.Views
         {
             try
             {
+                if (IsFixedPlacementMode())
+                    return;
                 var r = WindowState == WindowState.Maximized ? RestoreBounds : new Rect(Left, Top, Width, Height);
                 var cfg = AppConfigProvider.Instance;
                 cfg.SetValue("ChartWindow_Left", r.Left.ToString(CultureInfo.InvariantCulture));
@@ -205,24 +253,56 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// 异步加载图表数据（不阻塞UI线程）
+        /// 是否处于 A 股交易时段（用于图表缓存 TTL）
+        /// </summary>
+        private static bool IsInTradingHours()
+        {
+            var now = DateTime.Now;
+            if (now.DayOfWeek == DayOfWeek.Saturday || now.DayOfWeek == DayOfWeek.Sunday)
+                return false;
+            var time = now.TimeOfDay;
+            return (time >= new TimeSpan(9, 30, 0) && time < new TimeSpan(11, 30, 0))
+                || (time >= new TimeSpan(13, 0, 0) && time < new TimeSpan(15, 0, 0));
+        }
+
+        /// <summary>
+        /// 异步加载图表数据（不阻塞UI线程）；盘中同股票短时间复用缓存，减轻卡顿。
         /// </summary>
         private async Task LoadChartDataAsync(string stockCode)
         {
             try
             {
-                Console.WriteLine($"═══════════════════════════════════════════════════════");
+                int ttlSec = IsInTradingHours() ? ChartCacheTTLSecondsTrading : ChartCacheTTLSecondsNonTrading;
+                lock (_chartDataCacheLock)
+                {
+                    if (_chartDataCache.TryGetValue(stockCode, out var cached) && (DateTime.Now - cached.cachedAt).TotalSeconds < ttlSec)
+                    {
+                        _chartData = cached.data;
+                        Console.WriteLine($"[图表数据加载] 使用缓存: {stockCode}（{((DateTime.Now - cached.cachedAt).TotalSeconds):F0}秒前）");
+                        return;
+                    }
+                }
+                // 若 ChartService 的静态 ChartData 缓存命中，LoadChartData 会直接返回，此处不再重复计算
+
                 Console.WriteLine($"[图表数据加载] 开始异步加载股票: {stockCode}");
-                Console.WriteLine($"[图表数据加载] 时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
                 
                 // 在后台线程加载数据
                 await Task.Run(() =>
                 {
                     var chartService = new ChartService(_realTimeCache);
-                    Console.WriteLine($"[图表数据加载] ChartService 创建成功");
-                    
                     _chartData = chartService.LoadChartData(stockCode, 0); // 0表示加载所有历史数据
-                    Console.WriteLine($"[图表数据加载] LoadChartData 返回");
+                    if (_chartData == null) return;
+                    // 预运算：在后台一次性序列化为图表 JSON 并写入缓存，后续 SetChartData 直接复用
+                    string chartJson = ConvertToChartJson(_chartData);
+                    lock (_chartDataCacheLock)
+                    {
+                        _chartDataCache[stockCode] = (_chartData, DateTime.Now, chartJson);
+                        if (_chartDataCache.Count > 50)
+                        {
+                            var expired = _chartDataCache.Where(kv => (DateTime.Now - kv.Value.cachedAt).TotalSeconds > ttlSec * 2).Select(kv => kv.Key).ToList();
+                            foreach (var k in expired) _chartDataCache.Remove(k);
+                        }
+                    }
                 });
 
                 // 回到UI线程更新界面
@@ -300,7 +380,28 @@ namespace MQReceiver.Views
                         WindowState = WindowState.Maximized;
                     }
                 }
+                
+                // 性能优化：先初始化WebView，然后异步加载数据
                 await InitializeWebView();
+                
+                // 如果数据还未加载，则异步加载
+                if (_chartData == null && !string.IsNullOrEmpty(_stockCode))
+                {
+                    // 重要：不要用 Task.Run 包住整个流程，否则 LoadChartDataAsync 的后续 UI 更新会跑到后台线程，引发跨线程异常
+                    // LoadChartDataAsync 内部已经用 Task.Run 执行耗时加载，这里直接 await 不会阻塞UI线程
+                    await LoadChartDataAsync(_stockCode);
+
+                    if (_chartData != null)
+                    {
+                        this.Title = $"股票图表 - {_chartData.StockName} ({_chartData.StockCode})";
+                        await SetChartData();
+                    }
+                }
+                else if (_chartData != null)
+                {
+                    // 如果数据已加载，直接设置图表
+                    await SetChartData();
+                }
             }
             catch (Exception ex)
             {
@@ -413,8 +514,12 @@ namespace MQReceiver.Views
                 {
                     Console.WriteLine("[WebView初始化] ✅ 页面导航成功");
                     Console.WriteLine("[WebView初始化] 准备设置图表数据...");
-                    loadingText.Visibility = Visibility.Collapsed;
-                    await SetChartData();
+                    // 页面就绪后：如果数据已加载，立即渲染；否则保持“加载中”，等待数据加载完成后再渲染
+                    if (_chartData != null)
+                    {
+                        loadingText.Visibility = Visibility.Collapsed;
+                        await SetChartData();
+                    }
                 }
                 else
                 {
@@ -448,21 +553,38 @@ namespace MQReceiver.Views
 
             try
             {
-                Console.WriteLine($"[设置图表数据] 步骤1: 转换为JSON...");
-                var chartJson = ConvertToChartJson(_chartData);
-                Console.WriteLine($"[设置图表数据] ✅ JSON转换成功，大小: {chartJson.Length / 1024:F1} KB");
-                
-                // 输出JSON片段（前200字符）
-                string jsonPreview = chartJson.Length > 200 ? chartJson.Substring(0, 200) + "..." : chartJson;
-                Console.WriteLine($"[设置图表数据] JSON预览: {jsonPreview}");
-                
-                Console.WriteLine($"[设置图表数据] 步骤2: 执行JavaScript脚本...");
+                // 优先使用缓存的预序列化 JSON，避免重复大对象序列化导致卡顿
+                string chartJson;
+                int ttlSec = IsInTradingHours() ? ChartCacheTTLSecondsTrading : ChartCacheTTLSecondsNonTrading;
+                lock (_chartDataCacheLock)
+                {
+                    if (_chartDataCache.TryGetValue(_chartData.StockCode, out var cached) &&
+                        (DateTime.Now - cached.cachedAt).TotalSeconds < ttlSec &&
+                        cached.data == _chartData &&
+                        !string.IsNullOrEmpty(cached.chartJson))
+                    {
+                        chartJson = cached.chartJson;
+                    }
+                    else
+                    {
+                        chartJson = null;
+                    }
+                }
+                if (string.IsNullOrEmpty(chartJson))
+                {
+                    chartJson = await Task.Run(() => ConvertToChartJson(_chartData));
+                    // 计算后写回缓存，供同股票再次 SetChartData（如页面重载）时复用
+                    lock (_chartDataCacheLock)
+                    {
+                        if (_chartDataCache.TryGetValue(_chartData.StockCode, out var existing))
+                            _chartDataCache[_chartData.StockCode] = (existing.data, existing.cachedAt, chartJson);
+                        else
+                            _chartDataCache[_chartData.StockCode] = (_chartData, DateTime.Now, chartJson);
+                    }
+                }
                 string script = $"setAllData({chartJson});";
-                Console.WriteLine($"[设置图表数据] 脚本长度: {script.Length} 字节");
                 
                 var result = await webView.ExecuteScriptAsync(script);
-                Console.WriteLine($"[设置图表数据] ✅ JavaScript执行完成");
-                Console.WriteLine($"[设置图表数据] 执行结果: {result}");
                 
                 if (result != null && result.Contains("success"))
                 {
@@ -485,130 +607,17 @@ namespace MQReceiver.Views
 
         private string ConvertToChartJson(ChartData data)
         {
-            // KD数据现在已经与日K线完全对齐（每个交易日都有对应的KD值）
-            // 直接转换即可，不需要额外映射
-
-            // 调试：输出KD数据量
-            Console.WriteLine($"[WebChart调试] 股票: {data.StockCode}");
-            Console.WriteLine($"  日K线数据量: {data.DailyKline?.Count ?? 0}");
-            Console.WriteLine($"  周KD数据量: {data.WeeklyKD?.Count ?? 0}");
-            Console.WriteLine($"  月KD数据量: {data.MonthlyKD?.Count ?? 0}");
-            Console.WriteLine($"  季KD数据量: {data.QuarterlyKD?.Count ?? 0}");
-
-            // 输出KD数据样例（前3条和后3条）
-            if (data.WeeklyKD?.Count > 0)
-            {
-                Console.WriteLine($"  周KD数据样例:");
-                for (int i = 0; i < Math.Min(3, data.WeeklyKD.Count); i++)
-                {
-                    var kd = data.WeeklyKD[i];
-                    Console.WriteLine($"    [{i}] Date={kd.Date:yyyy-MM-dd}, K={kd.K:F2}, D={kd.D:F2}, K-D={kd.K - kd.D:F2}");
-                }
-                if (data.WeeklyKD.Count > 3)
-                {
-                    Console.WriteLine($"    ...");
-                    for (int i = Math.Max(0, data.WeeklyKD.Count - 3); i < data.WeeklyKD.Count; i++)
-                    {
-                        var kd = data.WeeklyKD[i];
-                        Console.WriteLine($"    [{i}] Date={kd.Date:yyyy-MM-dd}, K={kd.K:F2}, D={kd.D:F2}, K-D={kd.K - kd.D:F2}");
-                    }
-                }
-            }
-            else
-            {
-                Console.WriteLine($"  ⚠️ 警告: 周KD数据为空！");
-            }
-
-            if (data.MonthlyKD?.Count > 0)
-            {
-                var sample = data.MonthlyKD[data.MonthlyKD.Count - 1];
-                Console.WriteLine($"  月KD最后一条: Date={sample.Date:yyyy-MM-dd}, K={sample.K:F2}, D={sample.D:F2}, K-D={sample.K - sample.D:F2}");
-            }
-            else
-            {
-                Console.WriteLine($"  ⚠️ 警告: 月KD数据为空！");
-            }
-
-            if (data.QuarterlyKD?.Count > 0)
-            {
-                var sample = data.QuarterlyKD[data.QuarterlyKD.Count - 1];
-                Console.WriteLine($"  季KD最后一条: Date={sample.Date:yyyy-MM-dd}, K={sample.K:F2}, D={sample.D:F2}, K-D={sample.K - sample.D:F2}");
-            }
-            else
-            {
-                Console.WriteLine($"  ⚠️ 警告: 季KD数据为空！");
-            }
-
-            // 转换KD数据（已做平滑处理）
-            Console.WriteLine("[WebChart调试] 开始转换KD数据...");
+            // KD数据与日K线对齐，直接转换；不缩减根数，传完整 K 线/成交量
+#if DEBUG
+            Console.WriteLine($"[WebChart调试] 股票: {data.StockCode} 日K线: {data.DailyKline?.Count ?? 0} 周KD: {data.WeeklyKD?.Count ?? 0}");
+#endif
             var weeklyK = ConvertKDData(data.WeeklyKD, true);
             var weeklyD = ConvertKDData(data.WeeklyKD, false);
             var monthlyK = ConvertKDData(data.MonthlyKD, true);
             var monthlyD = ConvertKDData(data.MonthlyKD, false);
             var quarterlyK = ConvertKDData(data.QuarterlyKD, true);
             var quarterlyD = ConvertKDData(data.QuarterlyKD, false);
-            
-            // 验证K和D数据的时间点是否匹配
-            Console.WriteLine("[WebChart调试] 验证K和D数据的时间点匹配...");
-            if (weeklyK.Length > 0 && weeklyD.Length > 0)
-            {
-                Console.WriteLine($"  周KD: K数据={weeklyK.Length}条, D数据={weeklyD.Length}条");
-                if (weeklyK.Length == weeklyD.Length)
-                {
-                    // 检查前5条和后5条的时间是否匹配，并计算K-D差值范围
-                    Console.WriteLine("  前5条数据:");
-                    decimal minDiff = decimal.MaxValue, maxDiff = decimal.MinValue;
-                    for (int i = 0; i < Math.Min(5, weeklyK.Length); i++)
-                    {
-                        var kTime = ((dynamic)weeklyK[i]).time;
-                        var dTime = ((dynamic)weeklyD[i]).time;
-                        decimal kValue = Convert.ToDecimal(((dynamic)weeklyK[i]).value);
-                        decimal dValue = Convert.ToDecimal(((dynamic)weeklyD[i]).value);
-                        decimal diff = kValue - dValue;
-                        var timeMatch = kTime.year == dTime.year && kTime.month == dTime.month && kTime.day == dTime.day;
-                        Console.WriteLine($"    [{i}] 日期={kTime.year}-{kTime.month:D2}-{kTime.day:D2}, 匹配={timeMatch}, K={kValue:F2}, D={dValue:F2}, K-D={diff:F2}");
-                        if (diff < minDiff) minDiff = diff;
-                        if (diff > maxDiff) maxDiff = diff;
-                    }
-                    
-                    Console.WriteLine("  后5条数据:");
-                    for (int i = Math.Max(0, weeklyK.Length - 5); i < weeklyK.Length; i++)
-                    {
-                        var kTime = ((dynamic)weeklyK[i]).time;
-                        var dTime = ((dynamic)weeklyD[i]).time;
-                        decimal kValue = Convert.ToDecimal(((dynamic)weeklyK[i]).value);
-                        decimal dValue = Convert.ToDecimal(((dynamic)weeklyD[i]).value);
-                        decimal diff = kValue - dValue;
-                        var timeMatch = kTime.year == dTime.year && kTime.month == dTime.month && kTime.day == dTime.day;
-                        Console.WriteLine($"    [{i}] 日期={kTime.year}-{kTime.month:D2}-{kTime.day:D2}, 匹配={timeMatch}, K={kValue:F2}, D={dValue:F2}, K-D={diff:F2}");
-                        if (diff < minDiff) minDiff = diff;
-                        if (diff > maxDiff) maxDiff = diff;
-                    }
-                    
-                    // 计算所有数据的K-D差值范围
-                    for (int i = 5; i < Math.Max(0, weeklyK.Length - 5); i++)
-                    {
-                        decimal kValue = Convert.ToDecimal(((dynamic)weeklyK[i]).value);
-                        decimal dValue = Convert.ToDecimal(((dynamic)weeklyD[i]).value);
-                        decimal diff = kValue - dValue;
-                        if (diff < minDiff) minDiff = diff;
-                        if (diff > maxDiff) maxDiff = diff;
-                    }
-                    
-                    Console.WriteLine($"  K-D差值范围: 最小={minDiff:F2}, 最大={maxDiff:F2}, 波动范围={maxDiff - minDiff:F2}");
-                    
-                    if (maxDiff - minDiff < 0.01m)
-                    {
-                        Console.WriteLine($"  ⚠️ 警告: K-D差值几乎没有波动！所有差值都接近 {minDiff:F2}");
-                        Console.WriteLine($"  这会导致图表显示为直线！");
-                    }
-                }
-                else
-                {
-                    Console.WriteLine($"  ⚠️ 警告: 周KD的K和D数据量不一致！");
-                }
-            }
-            
+
             var chartData = new
             {
                 stockName = data.StockName,
@@ -626,10 +635,10 @@ namespace MQReceiver.Views
             return JsonConvert.SerializeObject(chartData);
         }
 
-        private object[] ConvertCandleData(System.Collections.Generic.List<CandleDataPoint> candles)
+        private object[] ConvertCandleData(System.Collections.Generic.IList<CandleDataPoint> candles)
         {
             if (candles == null || candles.Count == 0)
-                return new object[0];
+                return Array.Empty<object>();
 
             var result = new object[candles.Count];
             for (int i = 0; i < candles.Count; i++)
@@ -647,10 +656,10 @@ namespace MQReceiver.Views
             return result;
         }
 
-        private object[] ConvertVolumeData(System.Collections.Generic.List<CandleDataPoint> candles)
+        private object[] ConvertVolumeData(System.Collections.Generic.IList<CandleDataPoint> candles)
         {
             if (candles == null || candles.Count == 0)
-                return new object[0];
+                return Array.Empty<object>();
 
             var result = new object[candles.Count];
             for (int i = 0; i < candles.Count; i++)
@@ -669,10 +678,7 @@ namespace MQReceiver.Views
         private object[] ConvertKDData(System.Collections.Generic.List<KDDataPoint> kdList, bool isK)
         {
             if (kdList == null || kdList.Count == 0)
-            {
-                Console.WriteLine($"[ConvertKDData] {(isK ? "K" : "D")}值: 数据列表为空");
                 return new object[0];
-            }
 
             var result = new object[kdList.Count];
             for (int i = 0; i < kdList.Count; i++)
@@ -684,29 +690,6 @@ namespace MQReceiver.Views
                     value = isK ? kd.K : kd.D
                 };
             }
-            
-            // 调试输出：显示前3条和后3条数据
-            if (result.Length > 0)
-            {
-                Console.WriteLine($"[ConvertKDData] {(isK ? "K" : "D")}值: 共 {result.Length} 条数据");
-                for (int i = 0; i < Math.Min(3, result.Length); i++)
-                {
-                    var kd = kdList[i];
-                    var value = isK ? kd.K : kd.D;
-                    Console.WriteLine($"  [{i}] Date={kd.Date:yyyy-MM-dd}, {(isK ? "K" : "D")}={value:F2}, time={kd.Date.Year}-{kd.Date.Month:D2}-{kd.Date.Day:D2}");
-                }
-                if (result.Length > 3)
-                {
-                    Console.WriteLine($"  ...");
-                    for (int i = Math.Max(0, result.Length - 3); i < result.Length; i++)
-                    {
-                        var kd = kdList[i];
-                        var value = isK ? kd.K : kd.D;
-                        Console.WriteLine($"  [{i}] Date={kd.Date:yyyy-MM-dd}, {(isK ? "K" : "D")}={value:F2}, time={kd.Date.Year}-{kd.Date.Month:D2}-{kd.Date.Day:D2}");
-                    }
-                }
-            }
-            
             return result;
         }
 

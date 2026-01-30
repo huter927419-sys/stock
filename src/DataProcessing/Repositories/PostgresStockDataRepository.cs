@@ -859,6 +859,50 @@ namespace MQReceiver.Repositories
             return result;
         }
 
+        /// <summary>
+        /// 批量获取指定日期的成交金额（元），仅用于过滤条件（昨天成交金额>=N亿），不查换手率。
+        /// </summary>
+        public Dictionary<string, decimal?> GetYesterdayAmountBatch(List<string> stockCodes, DateTime tradeDate)
+        {
+            var result = new Dictionary<string, decimal?>();
+            if (stockCodes == null || stockCodes.Count == 0)
+                return result;
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+                    string sql = @"
+                        SELECT stock_code, amount
+                        FROM stock_daily_data
+                        WHERE stock_code = ANY(@stock_codes) AND trade_date = @trade_date";
+                    using (var cmd = new NpgsqlCommand(sql, connection))
+                    {
+                        var stockCodesParam = new NpgsqlParameter("@stock_codes", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                        {
+                            Value = stockCodes.ToArray()
+                        };
+                        cmd.Parameters.Add(stockCodesParam);
+                        cmd.Parameters.AddWithValue("@trade_date", tradeDate.Date);
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string code = reader.GetString(0);
+                                decimal? amount = reader.IsDBNull(1) ? (decimal?)null : reader.GetDecimal(1);
+                                result[code] = amount;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"GetYesterdayAmountBatch: {ex.Message}");
+            }
+            return result;
+        }
+
         #endregion
 
         #region 私有方法
