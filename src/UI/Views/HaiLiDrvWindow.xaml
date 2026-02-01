@@ -8,12 +8,34 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- 菜单栏（与 MairuiStockMonitor 一致：连接、主题、筛选） -->
+        <Menu Grid.Row="0" Background="#282828" Foreground="White" Height="24" VerticalAlignment="Top">
+            <MenuItem Header="连接">
+                <MenuItem x:Name="MenuStartReceive" Header="启动接收" Click="MenuStartReceive_Click"/>
+                <MenuItem x:Name="MenuStopReceive" Header="停止接收" Click="MenuStopReceive_Click"/>
+                <Separator/>
+                <MenuItem Header="退出应用" Click="MenuExit_Click"/>
+            </MenuItem>
+            <MenuItem Header="主题">
+                <MenuItem x:Name="MenuDarkTheme" Header="深色主题" IsCheckable="True" IsChecked="True" Click="MenuDarkTheme_Click"/>
+                <MenuItem x:Name="MenuLightTheme" Header="浅色主题" IsCheckable="True" Click="MenuLightTheme_Click"/>
+            </MenuItem>
+            <MenuItem Header="筛选">
+                <MenuItem x:Name="MenuGlobalFilter" Header="全局筛选设置" Click="MenuGlobalFilter_Click"/>
+            </MenuItem>
+            <MenuItem Header="视图">
+                <MenuItem x:Name="MenuShowDataPanel" Header="显示数据面板" IsCheckable="True" IsChecked="True" Click="MenuShowDataPanel_Click"/>
+                <MenuItem x:Name="MenuShowLogPanel" Header="显示日志面板" IsCheckable="True" IsChecked="True" Click="MenuShowLogPanel_Click"/>
+            </MenuItem>
+        </Menu>
+
         <!-- 工具栏 -->
-        <Border Grid.Row="0" Background="#2D2D30" Padding="10,5" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+        <Border Grid.Row="1" Background="#2D2D30" Padding="10,5" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
                 <Button Name="RefreshButton" Content="刷新数据" Width="100" Height="30" Margin="5,0" 
                         Click="RefreshButton_Click" Background="#007ACC" Foreground="White" BorderThickness="0"/>
@@ -53,19 +75,56 @@
             </StackPanel>
         </Border>
 
-        <!-- 面板容器（使用ScrollViewer包装WrapPanel以支持滚动） -->
-        <ScrollViewer Grid.Row="1" 
-                      VerticalScrollBarVisibility="Auto" 
-                      HorizontalScrollBarVisibility="Auto"
-                      Background="#1E1E1E">
-            <WrapPanel Name="PanelsContainer" 
-                       Orientation="Horizontal"
-                       HorizontalAlignment="Left"
-                       VerticalAlignment="Top"/>
-        </ScrollViewer>
+        <!-- 主内容：数据面板（表格+板块）+ 日志面板（与 Mairui 一致） -->
+        <Grid Grid.Row="2" Background="#1E1E1E">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="100"/>
+                <RowDefinition Height="8"/>
+                <RowDefinition Height="200" MinHeight="80"/>
+            </Grid.RowDefinitions>
+            <Border x:Name="DataPanelBorder" Grid.Row="0" Visibility="Visible">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <DataGrid x:Name="MainDataGrid" MinHeight="180" MaxHeight="350"
+                                  AutoGenerateColumns="False" IsReadOnly="True"
+                                  Background="#1E1E1E" Foreground="#D4D4D4"
+                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                                  CanUserResizeColumns="True" SelectionMode="Single">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="代码" Binding="{Binding StockCode}" Width="70"/>
+                                <DataGridTextColumn Header="名称" Binding="{Binding StockName}" Width="80"/>
+                                <DataGridTextColumn Header="最新价" Binding="{Binding NewPrice, StringFormat=F2}" Width="60"/>
+                                <DataGridTextColumn Header="涨跌幅" Binding="{Binding PriceChange, StringFormat=F2}" Width="60"/>
+                                <DataGridTextColumn Header="成交量" Binding="{Binding Volume, StringFormat=N0}" Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <WrapPanel x:Name="PanelsContainer" Orientation="Horizontal"
+                                   HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+            <GridSplitter Grid.Row="1" Height="8" HorizontalAlignment="Stretch" Background="#3F3F46"/>
+            <Border x:Name="LogPanelBorder" Grid.Row="2" Visibility="Visible"
+                    Background="#252526" BorderBrush="#3F3F46" BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5,2">
+                        <TextBlock Text="日志" Foreground="#D4D4D4" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <Button x:Name="BtnClearLog" Content="清空日志" Width="70" Height="22" Margin="15,0,0,0"
+                                Click="BtnClearLog_Click" Background="#5A5A5A" Foreground="White" BorderThickness="0"/>
+                    </StackPanel>
+                    <TextBox x:Name="LogTextBox" Grid.Row="1" IsReadOnly="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" Margin="5"
+                             Background="#1E1E1E" Foreground="#D4D4D4" BorderThickness="0"/>
+                </Grid>
+            </Border>
+        </Grid>
 
         <!-- 状态栏 -->
-        <Border Grid.Row="2" Background="#2D2D30" Padding="10,5" BorderBrush="#3F3F46" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Background="#2D2D30" Padding="10,5" BorderBrush="#3F3F46" BorderThickness="0,1,0,0">
             <TextBlock Name="InfoText" Text="等待数据..." Foreground="#B8B8B8" FontSize="11"/>
         </Border>
     </Grid>

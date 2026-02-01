@@ -13,11 +13,14 @@ namespace MQReceiver.Views
     /// </summary>
     public partial class StartupMenuWindow : Window
     {
+        private FilterMainWindow _mainProgramWindow;
+        private DataMigrationWindow _dataMigrationWindow;
+
         public StartupMenuWindow()
         {
-                    try
+            try
             {
-        .        InitializeComponent();
+                InitializeComponent();
                 this.KeyDown += StartupMenuWindow_KeyDown;
                 this.Focusable = true;
                 this.Focus();
@@ -50,6 +53,10 @@ namespace MQReceiver.Views
                 case Key.D2:
                 case Key.NumPad2:
                     StartHaiLiDrv();
+                    break;
+                case Key.D3:
+                case Key.NumPad3:
+                    StartDataMigration();
                     break;
                 // MQ服务已移除，主程序启动时自动启动
                 // case Key.D3:
@@ -106,6 +113,14 @@ namespace MQReceiver.Views
             StartHaiLiDrv();
         }
 
+        /// <summary>
+        /// 启动数据迁移工具
+        /// </summary>
+        private void DataMigration_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            StartDataMigration();
+        }
+
         // MQ服务已移除，主程序启动时自动启动
         // /// <summary>
         // /// 启动MQ服务
@@ -124,37 +139,50 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// 启动主程序
+        /// 启动主程序（与 2、3 可同时各开一个；重复点击 [1] 则激活已打开的窗口）
         /// </summary>
         private void StartMainProgram()
         {
-            // 使用WindowHelper统一处理窗口创建和错误处理
+            if (_mainProgramWindow != null && _mainProgramWindow.IsLoaded)
+            {
+                _mainProgramWindow.Activate();
+                Activate();
+                return;
+            }
             WindowHelper.CreateAndShowWindow(
                 () => new FilterMainWindow(),
-                "启动主程序失败"
+                "启动主程序失败",
+                win => { _mainProgramWindow = win; win.Closed += (s, __) => _mainProgramWindow = null; Activate(); Focus(); }
             );
         }
 
         /// <summary>
-        /// 启动HaiLiDrv独立窗口
+        /// 启动 HaiLiDrv 数据窗口（独立模式，数据源为 MQ）
         /// </summary>
         private void StartHaiLiDrv()
         {
-            // 使用CacheManager创建独立缓存
-            var cache = CacheManager.CreateStandaloneCache();
-            
-            // 使用WindowHelper统一处理窗口创建和错误处理
             WindowHelper.CreateAndShowWindow(
-                () => new HaiLiDrvWindow(cache, isStandaloneMode: true),
-                "启动HaiLiDrv窗口失败",
-                (window) =>
-                {
-                    // 窗口关闭时释放缓存资源
-                    window.Closed += (s, e) => 
-                    { 
-                        CacheManager.ReleaseStandaloneCache(cache);
-                    };
-                }
+                () => new HaiLiDrvWindow(null, true),
+                "启动 HaiLiDrv 数据窗口失败",
+                win => { win.Closed += (s, __) => Activate(); Focus(); }
+            );
+        }
+
+        /// <summary>
+        /// 启动数据迁移工具（与 1、2 可同时各开一个；重复点击 [3] 则激活已打开的窗口）
+        /// </summary>
+        private void StartDataMigration()
+        {
+            if (_dataMigrationWindow != null && _dataMigrationWindow.IsLoaded)
+            {
+                _dataMigrationWindow.Activate();
+                Activate();
+                return;
+            }
+            WindowHelper.CreateAndShowWindow(
+                () => new DataMigrationWindow(),
+                "启动数据迁移工具失败",
+                win => { _dataMigrationWindow = win; win.Closed += (s, __) => _dataMigrationWindow = null; Activate(); Focus(); }
             );
         }
 

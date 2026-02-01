@@ -6,6 +6,7 @@ using MQReceiver.Cache;
 using MQReceiver.Calculators;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
+using MQReceiver.DataProcessing.Factories;
 using MQReceiver.Repositories;
 using MQReceiver.Services;
 
@@ -40,9 +41,11 @@ namespace MQReceiver.Services
         /// </summary>
         public ChartService(RealTimeDataCache cache, IKlineDataRepository klineRepository)
         {
-            _klineRepository = klineRepository ?? new PostgresKlineDataRepository();
+            _klineRepository = klineRepository ?? RepositoryFactory.GetKlineDataRepository();
             realTimeCache = cache;
-            exRightsCalculator = new ExRightsAdjustmentCalculator();
+            exRightsCalculator = new ExRightsAdjustmentCalculator(
+                RepositoryFactory.GetExRightsDataRepository(),
+                _klineRepository);
             
             // 初始化数据边界管理器（用于实时数据合并）
             var dataBoundaryManager = cache != null ? new DataBoundaryManager(cache) : null;
@@ -260,7 +263,8 @@ namespace MQReceiver.Services
                 int actualPeriod = Math.Min(kdPeriod, aggregatedPeriods.Count);
                 if (actualPeriod < 2)
                 {
-                    Console.WriteLine($"[KD平滑计算] {stockCode} {cycleType}: 数据不足");
+                    // 新股或历史不足属正常，不刷屏；调试时可用 Debug 查看
+                    System.Diagnostics.Debug.WriteLine($"[KD平滑计算] {stockCode} {cycleType}: 数据不足");
                     return result;
                 }
 
@@ -391,6 +395,96 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
+        /// 批量计算一只股票的 6 个 KD 值（今日/昨日 × 周/月/季），用于过滤预计算。
+        /// 只加载一次日线、各周期只聚合一次，不做日级插值，显著提速。
+        /// </summary>
+        public (KDResult weekTarget, KDResult weekYest, KDResult monthTarget, KDResult monthYest, KDResult quarterTarget, KDResult quarterYest) ComputeAllKDForFilter(string stockCode, DateTime targetDate, DateTime yesterday)
+        {
+            var empty = (default(KDResult), default(KDResult), default(KDResult), default(KDResult), default(KDResult), default(KDResult));
+            try
+            {
+                var daily = LoadDailyKlineDataReal(stockCode, 0);
+                if (daily == null || daily.Count == 0) return empty;
+
+                var weekSeries = GetKDSeriesAtPeriodLevel(daily, "week");
+                var monthSeries = GetKDSeriesAtPeriodLevel(daily, "month");
+                var quarterSeries = GetKDSeriesAtPeriodLevel(daily, "quarter");
+
+                KDResult Pick(List<(DateTime date, double k, double d)> series, DateTime forDate)
+                {
+                    if (series == null || series.Count == 0) return null;
+                    var p = series.Where(x => x.date <= forDate.Date).OrderByDescending(x => x.date).FirstOrDefault();
+                    if (p.date == default) return null;
+                    return new KDResult { StockCode = stockCode, Date = p.date, K = (decimal)p.k, D = (decimal)p.d, RSV = 0 };
+                }
+
+                return (
+                    Pick(weekSeries, targetDate),
+                    Pick(weekSeries, yesterday),
+                    Pick(monthSeries, targetDate),
+                    Pick(monthSeries, yesterday),
+                    Pick(quarterSeries, targetDate),
+                    Pick(quarterSeries, yesterday)
+                );
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ComputeAllKDForFilter] {stockCode}: {ex.Message}");
+                return empty;
+            }
+        }
+
+        /// <summary>
+        /// 在周期级（周/月/季）上计算 KD 序列，不做日级插值，供批量过滤使用。
+        /// </summary>
+        private List<(DateTime date, double k, double d)> GetKDSeriesAtPeriodLevel(List<Models.CandleDataPoint> dailyKline, string cycleType)
+        {
+            var result = new List<(DateTime date, double k, double d)>();
+            if (dailyKline == null || dailyKline.Count == 0) return result;
+
+            var periods = new Dictionary<string, List<Models.CandleDataPoint>>();
+            foreach (var c in dailyKline)
+            {
+                string key = GetCycleKey(c.Date, cycleType);
+                if (!periods.ContainsKey(key)) periods[key] = new List<Models.CandleDataPoint>();
+                periods[key].Add(c);
+            }
+
+            var sortedPeriods = periods.OrderBy(p => p.Key).Select(p => p.Value.OrderBy(c => c.Date).ToList()).Where(list => list.Count > 0).ToList();
+            if (sortedPeriods.Count < 2) return result;
+
+            const int kdPeriod = 9;
+            int actualPeriod = Math.Min(kdPeriod, sortedPeriods.Count);
+            decimal k = 50m, d = 50m;
+            const int m1 = 3, m2 = 3;
+
+            var agg = new List<(double open, double high, double low, double close, DateTime periodEndDate)>();
+            foreach (var candles in sortedPeriods)
+            {
+                agg.Add((
+                    candles.First().Open,
+                    candles.Max(c => c.High),
+                    candles.Min(c => c.Low),
+                    candles.Last().Close,
+                    candles.Last().Date
+                ));
+            }
+
+            for (int i = actualPeriod - 1; i < agg.Count; i++)
+            {
+                var recent = agg.Skip(i - actualPeriod + 1).Take(actualPeriod).ToList();
+                decimal highest = (decimal)recent.Max(r => r.high);
+                decimal lowest = (decimal)recent.Min(r => r.low);
+                decimal close = (decimal)agg[i].close;
+                decimal rsv = (highest == lowest) ? 50m : (close - lowest) / (highest - lowest) * 100m;
+                k = SMA(rsv, m1, k);
+                d = SMA(k, m2, d);
+                result.Add((agg[i].periodEndDate, (double)Math.Round(k, 2), (double)Math.Round(d, 2)));
+            }
+            return result;
+        }
+
+        /// <summary>
         /// 获取指定日期的KD值（使用与图表相同的计算逻辑，确保一致性）
         /// 按 targetDate 取「该日或之前最近一个交易日」的KD，用于金叉等需要「今日/昨日」对比的计算。
         /// 若 targetDate 晚于所有K线日期则用最后一笔；若早于第一笔则返回 null。
@@ -515,6 +609,8 @@ namespace MQReceiver.Services
 
                 // 从Repository获取K线数据（优先从内存缓存读取）
                 var dailyData = _klineRepository.GetDailyData(stockCode, startDate, endDate);
+                if (dailyData == null || dailyData.Count == 0)
+                    return result;
 
                 // 使用前复权价格计算K线数据（确保图表显示连续，无跳空）
                 // 性能优化：减少日志输出
@@ -623,6 +719,8 @@ namespace MQReceiver.Services
 
                 // 从Repository获取K线数据（优先从内存缓存读取）
                 var dailyData = _klineRepository.GetDailyData(stockCode, startDate, endDate);
+                if (dailyData == null || dailyData.Count == 0)
+                    return result;
 
                 // 使用真实数据（不使用前复权价格）
                 // 性能优化：减少日志输出

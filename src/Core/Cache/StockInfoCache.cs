@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using MQReceiver.Helpers;
+using MQReceiver.DataProcessing.Factories;
+using MQReceiver.DataProcessing.Repositories;
 using Npgsql;
 
 namespace MQReceiver.Cache
@@ -35,7 +38,7 @@ namespace MQReceiver.Cache
         }
 
         /// <summary>
-        /// 从数据库加载所有股票信息到内存
+        /// 从数据库或当前配置的存储后端加载所有股票信息到内存
         /// </summary>
         public void LoadFromDatabase()
         {
@@ -47,6 +50,13 @@ namespace MQReceiver.Cache
 
                 try
                 {
+                    var backend = RepositoryFactory.GetCurrentBackend();
+                    if (backend == RepositoryFactory.StorageBackend.RocksDB || backend == RepositoryFactory.StorageBackend.FileBased)
+                    {
+                        LoadFromRocksDB();
+                        return;
+                    }
+
                     using (var conn = new NpgsqlConnection(_connectionString))
                     {
                         conn.Open();
@@ -67,14 +77,11 @@ namespace MQReceiver.Cache
                                 string stockName = reader.IsDBNull(1) ? stockCode : reader.GetString(1);
                                 int marketCode = reader.IsDBNull(2) ? 0 : reader.GetInt16(2);
                                 
-                                // 双重验证：代码 + 名称
                                 if (!Helpers.StockDataParser.IsValidStockCode(stockCode))
                                 {
                                     filteredByCode++;
                                     continue;
                                 }
-                                
-                                // 额外检查：名称是否包含非A股关键词
                                 if (Helpers.StockDataParser.IsNonAStockByName(stockName))
                                 {
                                     filteredByName++;
@@ -105,6 +112,62 @@ namespace MQReceiver.Cache
         }
 
         /// <summary>
+        /// 从 RocksDB/文件存储加载股票信息（避免连接 PostgreSQL 超时）
+        /// </summary>
+        private void LoadFromRocksDB()
+        {
+            try
+            {
+                var repo = RepositoryFactory.GetStockDataRepository();
+                var names = repo.GetAllStockNames();
+                if (names == null) names = new Dictionary<string, string>();
+
+                int count = 0;
+                int filteredByCode = 0;
+                int filteredByName = 0;
+                foreach (var kv in names)
+                {
+                    string stockCode = kv.Key;
+                    string stockName = string.IsNullOrEmpty(kv.Value) ? stockCode : kv.Value;
+
+                    if (!Helpers.StockDataParser.IsValidStockCode(stockCode))
+                    {
+                        filteredByCode++;
+                        continue;
+                    }
+                    if (Helpers.StockDataParser.IsNonAStockByName(stockName))
+                    {
+                        filteredByName++;
+                        continue;
+                    }
+
+                    _stockNameCache[stockCode] = stockName;
+                    _marketCodeCache[stockCode] = GetMarketCodeFromStockCode(stockCode);
+                    count++;
+                }
+                Console.WriteLine($"[StockInfoCache] 从 {RepositoryFactory.GetCurrentBackend()} 加载了 {count} 条股票信息");
+                int totalFiltered = filteredByCode + filteredByName;
+                if (totalFiltered > 0)
+                {
+                    Console.WriteLine($"[StockInfoCache] 计算了 {totalFiltered} 条非A股代码");
+                }
+                _isLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[StockInfoCache] 从存储加载失败: {ex.Message}");
+            }
+        }
+
+        private static int GetMarketCodeFromStockCode(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return 0;
+            if (code.StartsWith("6") || code.StartsWith("900")) return 1;
+            if (code.Length >= 2 && (code.StartsWith("43") || code.StartsWith("83") || code.StartsWith("87") || code.StartsWith("88"))) return 2;
+            return 0;
+        }
+
+        /// <summary>
         /// 确保缓存已加载
         /// 改进：如果缓存为空，自动尝试同步和补充名称
         /// 增强：自动检查并修复常见问题
@@ -113,24 +176,59 @@ namespace MQReceiver.Cache
         {
             if (!_isLoaded)
             {
-                // 第一步：自动修复数据库中的常见问题
-                AutoFixCommonIssues();
+                // 仅 PostgreSQL 时自动修复 stock_info 表（RocksDB 无此表）
+                if (RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.PostgreSQL)
+                    AutoFixCommonIssues();
                 
-                // 第二步：加载数据
                 LoadFromDatabase();
                 
-                // 如果加载后仍然为空，尝试从日线数据同步
                 if (_stockNameCache.Count == 0)
                 {
                     Console.WriteLine("[StockInfoCache] 缓存为空，尝试从日线数据同步...");
                     SyncFromDailyData();
                 }
                 
-                // 补充内置字典中的名称到缓存
                 UpdateFromBuiltinDictionary();
+
+                // RocksDB：将当前缓存（含内置名称）写回 metadata/stock_names.json，便于名称持久化
+                if (RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.RocksDB ||
+                    RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.FileBased)
+                {
+                    SyncStockNameCacheToRocksDB();
+                }
             }
         }
-        
+
+        /// <summary>
+        /// 将内存中的股票名称缓存写回 RocksDB metadata/stock_names.json（合并内置名称等）
+        /// </summary>
+        private void SyncStockNameCacheToRocksDB()
+        {
+            try
+            {
+                var repo = RepositoryFactory.GetStockDataRepository();
+                if (repo == null) return;
+                var list = new List<(string StockCode, string StockName, ushort MarketCode)>();
+                foreach (var kv in _stockNameCache)
+                {
+                    string code = kv.Key;
+                    string name = kv.Value;
+                    if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name)) continue;
+                    if (!Helpers.StockDataParser.IsValidStockCode(code)) continue;
+                    int market = _marketCodeCache.TryGetValue(code, out int m) ? m : GetMarketCodeFromStockCode(code);
+                    list.Add((code, name, (ushort)market));
+                }
+                if (list.Count == 0) return;
+                int n = repo.SaveStockInfo(list);
+                if (n > 0)
+                    Console.WriteLine($"[StockInfoCache] 已同步 {n} 条股票名称到 RocksDB");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[StockInfoCache] 同步名称到 RocksDB 失败: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// 自动修复stock_info表的常见问题
         /// </summary>
@@ -360,21 +458,28 @@ namespace MQReceiver.Cache
             var builtinNames = new Dictionary<string, string>
             {
                 // 深圳主板股票 (000开头)
-                {"000022", "深赤湾A"}, {"000092", "惠天热电"}, {"000094", "大名城"},
+                {"000022", "深赤湾A"}, {"000092", "惠天热电"},
+                // 000094 非大名城（大名城为600094）；000094 若为指数/基金则不入A股内置
                 // 移除 000101 - 这是债券指数，不是A股！
                 {"000105", "永鼎股份"}, {"000106", "重庆路桥"}, {"000112", "浙江东日"}, {"000113", "浙江东方"},
-                {"000116", "三峡水利"}, {"000117", "西宁特钢"}, {"000119", "瑞茂通"}, {"000122", "兰花科创"},
+                {"000116", "三峡水利"}, {"000117", "西宁特钢"}, {"000122", "兰花科创"},
                 {"000125", "铁龙物流"}, {"000130", "波导股份"}, {"000133", "东湖高新"},
                 {"000135", "乐凯胶片"}, {"000141", "中国宝安"}, {"000145", "廊坊发展"}, {"000152", "维科技术"},
                 {"000160", "巨化股份"}, {"000828", "东莞控股"}, {"000830", "鲁西化工"}, {"000851", "高鸿股份"},
-                {"000853", "冀东装备"}, {"000891", "阳光城"}, {"000982", "宁波能源"},
+                {"000853", "冀东装备"}, {"000865", "扬电科技"}, {"000867", "通化东宝"},
+                {"000855", "央视500"},   // 深证指数；皖维高新为600063
+                {"000891", "博时现金宝B"}, // 基金，仅作显示名
+                {"000982", "宁波能源"},
                 
                 // 上海主板股票 (600开头)
-                {"600057", "厦门象屿"}, {"600071", "凤凰光学"}, {"600073", "光明肉业"}, 
+                {"600057", "厦门象屿"}, {"600071", "凤凰光学"}, {"600073", "光明肉业"},
+                {"600063", "皖维高新"}, {"600094", "大名城"}, {"600180", "瑞茂通"}, 
                 {"600101", "明星电力"}, {"600132", "重庆啤酒"}, {"600854", "春兰股份"},
                 
                 // 创业板股票 (300开头)
                 {"300033", "同花顺"},
+                // 中小板 (002开头)
+                {"002001", "新和成"},
                 // ST股票（注意：ST股票名称可能会变化，以实时数据为准）
                 {"603268", "*ST松发"}, {"000693", "*ST华泽"}, {"000699", "S*ST佳唐"}, {"000564", "ST供销大集"}, {"000498", "*ST莲花"},
                 {"000662", "*ST天夏"}, {"000673", "*ST当代"}, {"000760", "*ST斯太"}, {"000816", "*ST慧业"},
@@ -769,7 +874,7 @@ namespace MQReceiver.Cache
         }
 
         /// <summary>
-        /// 从日线数据同步股票代码到stock_info表
+        /// 从日线数据同步股票代码到 stock_info（PostgreSQL）或 metadata（RocksDB）
         /// 确保所有在日线数据中出现的股票都有记录
         /// </summary>
         /// <returns>新增的记录数</returns>
@@ -778,21 +883,23 @@ namespace MQReceiver.Cache
             int newCount = 0;
             try
             {
+                var backend = RepositoryFactory.GetCurrentBackend();
+                if (backend == RepositoryFactory.StorageBackend.RocksDB || backend == RepositoryFactory.StorageBackend.FileBased)
+                {
+                    newCount = SyncFromDailyDataRocksDB();
+                    return newCount;
+                }
+
                 using (var conn = new NpgsqlConnection(_connectionString))
                 {
                     conn.Open();
 
-                    // 查看日线数据中有多少股票
                     using (var cmd = new NpgsqlCommand("SELECT COUNT(DISTINCT stock_code) FROM stock_daily_data", conn))
                     {
                         var count = cmd.ExecuteScalar();
                         Console.WriteLine($"[StockInfoCache] 日线数据中股票数量: {count}");
                     }
 
-                    // 执行同步SQL
-                    // 上海(1): 600/601/603/605(主板), 688(科创板), 900(B股)
-                    // 深圳(0): 000/001(主板), 002/003/004(中小板), 300/301(创业板), 200(B股)
-                    // 北京(2): 43/83/87/88开头
                     string syncSql = @"
                         INSERT INTO stock_info (stock_code, stock_name, market_code, market_name, stock_type, is_active)
                         SELECT DISTINCT ON (stock_code)
@@ -830,25 +937,20 @@ namespace MQReceiver.Cache
                         Console.WriteLine($"[StockInfoCache] 从日线数据同步完成，新增记录数: {newCount}");
                     }
 
-                    // 从实时数据表同步股票名称
                     SyncNamesFromRealtimeData(conn);
                 }
 
-                // 从内置字典更新缺失的股票名称
                 UpdateFromBuiltinDictionary();
 
                 using (var conn = new NpgsqlConnection(_connectionString))
                 {
                     conn.Open();
-
-                    // 查看同步后的统计
                     string statsSql = @"
                         SELECT
                             COUNT(*) AS total_count,
                             SUM(CASE WHEN stock_name = stock_code THEN 1 ELSE 0 END) AS no_name_count,
                             SUM(CASE WHEN stock_name <> stock_code THEN 1 ELSE 0 END) AS has_name_count
                         FROM stock_info";
-
                     using (var cmd = new NpgsqlCommand(statsSql, conn))
                     using (var reader = cmd.ExecuteReader())
                     {
@@ -859,7 +961,6 @@ namespace MQReceiver.Cache
                     }
                 }
 
-                // 同步后重新加载缓存
                 Reload();
             }
             catch (Exception ex)
@@ -867,12 +968,8 @@ namespace MQReceiver.Cache
                 Console.WriteLine($"[StockInfoCache] 从日线数据同步失败: {ex.Message}");
                 Console.WriteLine($"[StockInfoCache] 错误详情: {ex.GetType().Name}");
                 if (ex.InnerException != null)
-                {
                     Console.WriteLine($"[StockInfoCache] 内部错误: {ex.InnerException.Message}");
-                }
                 Console.WriteLine($"[StockInfoCache] 堆栈跟踪: {ex.StackTrace}");
-                
-                // 即使同步失败，也尝试加载现有数据
                 try
                 {
                     Console.WriteLine($"[StockInfoCache] 尝试加载现有缓存数据...");
@@ -885,6 +982,32 @@ namespace MQReceiver.Cache
             }
 
             return newCount;
+        }
+
+        /// <summary>
+        /// RocksDB/文件存储：从日线目录补齐 metadata/stock_names.json，再重新加载缓存（不连 PostgreSQL）
+        /// </summary>
+        private int SyncFromDailyDataRocksDB()
+        {
+            try
+            {
+                var repo = RepositoryFactory.GetStockDataRepository();
+                if (repo is RocksDBStockDataRepository rocksRepo)
+                {
+                    int added = rocksRepo.InitializeStockInfoFromDailyData();
+                    Console.WriteLine($"[StockInfoCache] 从日线数据同步到 {RepositoryFactory.GetCurrentBackend()} 完成，新增: {added}");
+                    Reload();
+                    return added;
+                }
+                Reload();
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[StockInfoCache] 从日线数据同步失败: {ex.Message}");
+                LoadFromDatabase();
+                return 0;
+            }
         }
 
         /// <summary>
@@ -949,12 +1072,13 @@ namespace MQReceiver.Cache
                 {"000065", "北方国际"}, {"000066", "中国长城"}, {"000068", "华控赛格"}, {"000069", "华侨城A"},
                 {"000070", "特发信息"}, {"000078", "海王生物"},
                 {"000088", "盐田港"}, {"000089", "深圳机场"}, {"000090", "天健集团"}, {"000092", "惠天热电"},
-                {"000093", "新大洲A"}, {"000094", "大名城"}, {"000096", "广聚能源"}, {"000099", "中信海直"},
+                {"000093", "新大洲A"}, {"000096", "广聚能源"}, {"000099", "中信海直"},
                 {"000100", "TCL科技"}, 
                 // 移除 000101 - 这是"上证5年期信用债指数"（债券指数），不是A股！
                 {"000105", "永鼎股份"}, {"000106", "重庆路桥"},
                 {"000112", "浙江东日"}, {"000113", "浙江东方"}, {"000116", "三峡水利"}, {"000117", "西宁特钢"},
-                {"000119", "瑞茂通"}, {"000122", "兰花科创"}, {"000125", "铁龙物流"}, {"000130", "波导股份"},
+                // 000119 为380R成长指数/基金，非瑞茂通（瑞茂通为600180）
+                {"000122", "兰花科创"}, {"000125", "铁龙物流"}, {"000130", "波导股份"},
                 {"000133", "东湖高新"}, {"000135", "乐凯胶片"}, {"000141", "中国宝安"},
                 {"000145", "廊坊发展"}, {"000152", "维科技术"}, {"000153", "丰原药业"}, {"000155", "川能动力"},
                 {"000156", "华数传媒"}, {"000157", "中联重科"}, {"000158", "常山北明"}, {"000159", "国际实业"},
@@ -1028,13 +1152,13 @@ namespace MQReceiver.Cache
                 {"000831", "五矿稀土"}, {"000833", "粤桂股份"}, {"000835", "长城动漫"}, {"000836", "鑫茂科技"},
                 {"000837", "秦川机床"}, {"000838", "财信发展"}, {"000839", "中信国安"}, {"000848", "承德露露"},
                 {"000850", "华茂股份"}, {"000851", "高鸿股份"}, {"000852", "石化机械"}, {"000853", "冀东装备"},
-                {"000855", "皖维高新"}, {"000856", "云南锗业"}, {"000857", "酒钢宏兴"}, {"000858", "五粮液"},
+                {"000855", "央视500"}, {"000856", "云南锗业"}, {"000857", "酒钢宏兴"}, {"000858", "五粮液"},
                 {"000859", "国风塑业"}, {"000860", "顺鑫农业"}, {"000861", "海印股份"}, {"000862", "银星能源"},
                 {"000863", "三湘印象"}, {"000868", "安凯客车"}, {"000869", "张裕A"}, {"000875", "吉电股份"},
                 {"000876", "新希望"}, {"000877", "天山股份"}, {"000878", "云南铜业"}, {"000880", "潍柴重机"},
                 {"000881", "中广核技"}, {"000882", "华联股份"}, {"000883", "湖北能源"}, {"000885", "城发环境"},
                 {"000886", "海南高速"}, {"000887", "中鼎股份"}, {"000888", "峨眉山A"}, {"000889", "茂业通信"},
-                {"000890", "法尔胜"}, {"000891", "阳光城"}, {"000892", "欢瑞世纪"}, {"000893", "东凌国际"},
+                {"000890", "法尔胜"}, {"000891", "博时现金宝B"}, {"000892", "欢瑞世纪"}, {"000893", "东凌国际"},
                 {"000895", "双汇发展"}, {"000897", "津滨发展"}, {"000898", "鞍钢股份"}, {"000899", "赣能股份"},
                 {"000900", "现代投资"}, {"000901", "航天科技"}, {"000902", "新洋丰"}, {"000903", "云内动力"},
                 {"000905", "厦门港务"}, {"000906", "浙商中拓"}, {"000908", "景峰医药"}, {"000909", "数源科技"},
@@ -1057,49 +1181,94 @@ namespace MQReceiver.Cache
                 {"000998", "隆平高科"}, {"000999", "华润三九"},
                 
                 // 深圳中小板股票 (002开头) - 补充重要的映射
+                {"002001", "新和成"},  // 浙江新和成
                 {"002209", "达意隆"},  // ✅ 重要：修正达意隆的完整名称
                 
                 // 上海主板股票 (600开头) - 补充重要的映射
                 {"600101", "明星电力"},  // ✅ 重要：修正明星电力的正确代码
             };
 
-            try
+            // 1. 先合并内置字典到内存缓存（所有后端都执行，RocksDB 时之前会因连 PG 失败而漏掉）
+            foreach (var kvp in stockNames)
             {
-                using (var conn = new NpgsqlConnection(_connectionString))
+                _stockNameCache[kvp.Key] = kvp.Value;
+                _marketCodeCache[kvp.Key] = GetMarketCodeFromStockCode(kvp.Key);
+            }
+
+            // 2. PostgreSQL：更新 stock_info 表
+            if (RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.PostgreSQL)
+            {
+                try
                 {
-                    conn.Open();
-                    int updated = 0;
-
-                    foreach (var kvp in stockNames)
+                    using (var conn = new NpgsqlConnection(_connectionString))
                     {
-                        // 内置字典的名称总是覆盖数据库中的值（确保名称正确）
-                        string updateSql = @"
-                            UPDATE stock_info
-                            SET stock_name = @name, update_time = CURRENT_TIMESTAMP
-                            WHERE stock_code = @code
-                              AND (stock_name IS NULL OR stock_name = '' OR stock_name = stock_code OR stock_name <> @name)";
-
-                        using (var cmd = new NpgsqlCommand(updateSql, conn))
+                        conn.Open();
+                        int updated = 0;
+                        foreach (var kvp in stockNames)
                         {
-                            cmd.Parameters.AddWithValue("code", kvp.Key);
-                            cmd.Parameters.AddWithValue("name", kvp.Value);
-                            int affected = cmd.ExecuteNonQuery();
-                            if (affected > 0) updated++;
+                            string updateSql = @"
+                                UPDATE stock_info
+                                SET stock_name = @name, update_time = CURRENT_TIMESTAMP
+                                WHERE stock_code = @code
+                                  AND (stock_name IS NULL OR stock_name = '' OR stock_name = stock_code OR stock_name <> @name)";
+                            using (var cmd = new NpgsqlCommand(updateSql, conn))
+                            {
+                                cmd.Parameters.AddWithValue("code", kvp.Key);
+                                cmd.Parameters.AddWithValue("name", kvp.Value);
+                                if (cmd.ExecuteNonQuery() > 0) updated++;
+                            }
                         }
-
-                        // 同时更新内存缓存（无论数据库是否更新，都确保缓存中有正确的名称）
-                        _stockNameCache[kvp.Key] = kvp.Value;
-                    }
-
-                    if (updated > 0)
-                    {
-                        Console.WriteLine($"[StockInfoCache] 从内置字典更新了 {updated} 条股票名称");
+                        if (updated > 0)
+                            Console.WriteLine($"[StockInfoCache] 从内置字典更新了 {updated} 条股票名称（PostgreSQL）");
                     }
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[StockInfoCache] 从内置字典更新 PostgreSQL 失败: {ex.Message}");
+                }
+            }
+
+            // 3. RocksDB：用内置字典覆盖 stock_names.json 中的错误/空格名称，并写回
+            if (RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.RocksDB ||
+                RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.FileBased)
+            {
+                ApplyBuiltinToRocksDB(stockNames);
+            }
+        }
+
+        /// <summary>
+        /// 用内置字典覆盖 RocksDB metadata/stock_names.json 中的名称，修正空格、错名等
+        /// </summary>
+        private void ApplyBuiltinToRocksDB(Dictionary<string, string> builtinDict)
+        {
+            try
+            {
+                var repo = RepositoryFactory.GetStockDataRepository();
+                if (repo == null) return;
+                var current = repo.GetAllStockNames();
+                if (current == null) current = new Dictionary<string, string>();
+                int fixedCount = 0;
+                foreach (var kv in builtinDict)
+                {
+                    if (current.TryGetValue(kv.Key, out var old) && old != kv.Value)
+                        fixedCount++;
+                    current[kv.Key] = kv.Value;
+                }
+                var list = new List<(string StockCode, string StockName, ushort MarketCode)>();
+                foreach (var kv in current)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key) || string.IsNullOrWhiteSpace(kv.Value)) continue;
+                    if (!Helpers.StockDataParser.IsValidStockCode(kv.Key)) continue;
+                    list.Add((kv.Key, kv.Value, (ushort)GetMarketCodeFromStockCode(kv.Key)));
+                }
+                if (list.Count > 0)
+                    repo.SaveStockInfo(list);
+                if (fixedCount > 0)
+                    Console.WriteLine($"[StockInfoCache] 已用内置字典修正 RocksDB 名称，修正 {fixedCount} 条");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[StockInfoCache] 从内置字典更新失败: {ex.Message}");
+                Console.WriteLine($"[StockInfoCache] 修正 RocksDB 名称失败: {ex.Message}");
             }
         }
 

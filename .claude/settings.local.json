@@ -68,7 +68,12 @@
       "Bash(cmd.exe /c \"where psql\")",
       "Bash(cmd.exe /c:*)",
       "Bash(git branch:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(dotnet nuget:*)",
+      "Bash(dotnet add package:*)",
+      "Bash(xxd:*)",
+      "Bash(python:*)",
+      "Bash(perl:*)"
     ]
   }
 }

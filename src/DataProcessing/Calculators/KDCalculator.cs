@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using MQReceiver.Configuration;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
 using MQReceiver.Repositories;
 using MQReceiver.Services;
 using MQReceiver.Cache;
+using MQReceiver.DataProcessing.Factories;
 
 namespace MQReceiver.Calculators
 {
@@ -48,14 +50,17 @@ namespace MQReceiver.Calculators
         private static bool _debugQuarterLogged = false;
         private static readonly object _debugLock = new object();
 
+        /// <summary>「数据不足」诊断：抽样条数，避免刷屏</summary>
+        private static int _dataInsufficientDiagnoseCount = 0;
+        private const int MaxDataInsufficientDiagnoseLogs = 8;
+
         /// <summary>
         /// 使用默认仓储初始化（向后兼容）
         /// </summary>
         public KDCalculator()
         {
-            // 使用统一的连接字符串生成器
             connectionString = DatabaseConnectionHelper.BuildConnectionString();
-            _klineRepository = new PostgresKlineDataRepository(connectionString);
+            _klineRepository = RepositoryFactory.GetKlineDataRepository();
             _exRightsCalculator = new ExRightsAdjustmentCalculator();
         }
 
@@ -569,7 +574,32 @@ namespace MQReceiver.Calculators
                 }
 
                 // 按周期聚合数据
-                return AggregateByCycle(result, cycleType);
+                var aggregated = AggregateByCycle(result, cycleType);
+
+                // 「数据不足」诊断：抽样输出，区分「真实数据少」与「日线多但聚合少（程序/周期问题）」
+                if (aggregated.Count < period)
+                {
+                    bool diagnose = AppConfigProvider.Instance.GetBool("FilterDiagnose_DataInsufficient", false);
+                    if (diagnose)
+                    {
+                        lock (_debugLock)
+                        {
+                            if (_dataInsufficientDiagnoseCount < MaxDataInsufficientDiagnoseLogs)
+                            {
+                                _dataInsufficientDiagnoseCount++;
+                                string rangeStr = stockDateRange.StartDate.HasValue && stockDateRange.EndDate.HasValue
+                                    ? $"{stockDateRange.StartDate.Value:yyyy-MM-dd} ~ {stockDateRange.EndDate.Value:yyyy-MM-dd}"
+                                    : "无";
+                                string conclusion = result.Count >= 100 && aggregated.Count < period
+                                    ? "→ 日线充足但聚合少，疑似周期/程序逻辑问题"
+                                    : "→ 日线少，数据确实不足（新股或历史短）";
+                                Console.WriteLine($"[数据不足诊断] {stockCode} {cycleType} 日线数={result.Count} 聚合周期数={aggregated.Count} 范围={rangeStr} {conclusion}");
+                            }
+                        }
+                    }
+                }
+
+                return aggregated;
             }
             catch (Exception ex)
             {

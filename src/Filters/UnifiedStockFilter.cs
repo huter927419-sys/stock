@@ -11,6 +11,7 @@ using MQReceiver.Helpers;
 using MQReceiver.Models;
 using MQReceiver.Repositories;
 using MQReceiver.Services;
+using MQReceiver.DataProcessing.Factories;
 
 namespace MQReceiver.Filters
 {
@@ -24,7 +25,7 @@ namespace MQReceiver.Filters
         private readonly KDCalculator _kdCalculator; // 保留作为备用
         private readonly ChartService _chartService; // 使用ChartService计算KD，确保与图表一致
         private readonly RealTimeDataCache _realTimeCache;
-        private readonly PostgresKlineDataRepository _klineRepository;
+        private readonly IKlineDataRepository _klineRepository;
         private readonly BatchKDCalculator _batchKDCalculator; // 批量KD计算器（性能优化）
 
         // 表格5/6 诊断计数（FilterDiagnose_56=true 时使用）
@@ -54,7 +55,7 @@ namespace MQReceiver.Filters
         {
             _kdCalculator = kdCalculator ?? throw new ArgumentNullException(nameof(kdCalculator));
             _realTimeCache = realTimeCache ?? throw new ArgumentNullException(nameof(realTimeCache));
-            _klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
+            _klineRepository = RepositoryFactory.GetKlineDataRepository();
             // 创建ChartService实例，使用与图表相同的KD计算逻辑
             _chartService = new ChartService(realTimeCache);
             _batchKDCalculator = batchKDCalculator; // 使用批量计算器（性能优化）
@@ -211,6 +212,23 @@ namespace MQReceiver.Filters
         /// </summary>
         private FilterResultWithHistory ProcessStock(RealTimeDataRecord realTimeData, NewFilterCondition condition, DateTime targetDate, Dictionary<string, decimal?> amountDict = null, bool runDiagnose56 = false)
         {
+            if (condition == null)
+                return null;
+
+            try
+            {
+                return ProcessStockCore(realTimeData, condition, targetDate, amountDict, runDiagnose56);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ProcessStock] {realTimeData?.StockCode ?? "?"}: {ex.GetType().Name} - {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+                return null;
+            }
+        }
+
+        private FilterResultWithHistory ProcessStockCore(RealTimeDataRecord realTimeData, NewFilterCondition condition, DateTime targetDate, Dictionary<string, decimal?> amountDict, bool runDiagnose56)
+        {
             string stockCode = realTimeData.StockCode;
 
             // 计算昨天的日期（在方法开始处声明一次，避免重复声明）
@@ -306,8 +324,8 @@ namespace MQReceiver.Filters
                 priceChangePercent = CalculatePriceChangePercentFromDaily(stockCode, targetDate);
             }
 
-            // 获取股票名称
-            string stockName = StockInfoCache.Instance.GetStockName(stockCode);
+            // 获取股票名称（防御：Instance 可能未初始化）
+            string stockName = StockInfoCache.Instance != null ? StockInfoCache.Instance.GetStockName(stockCode) : stockCode;
 
             return new FilterResultWithHistory
             {

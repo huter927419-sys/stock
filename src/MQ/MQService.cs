@@ -48,36 +48,31 @@ namespace MQReceiver.Services
                 // 读取配置
                 LoadConfig();
 
-                // 初始化Redis连接（可选）
-                try
-                {
-                    RedisHelper.Initialize();
-                    Console.WriteLine("Redis连接初始化成功");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"警告: Redis初始化失败: {ex.Message}，将使用数据库直接查询");
-                }
-
-                // 初始化数据库写入器
-                Console.WriteLine("正在初始化数据库连接...");
-                dbWriter = new DailyDataDBWriter();
-                realTimeDbWriter = new RealTimeDataDBWriter();
-                exRightsDbWriter = new ExRightsDataDBWriter();
+                // 使用当前配置的存储后端（PostgreSQL 或 RocksDB）
+                Console.WriteLine("正在初始化存储连接...");
+                var stockRepo = MQReceiver.DataProcessing.Factories.RepositoryFactory.GetStockDataRepository();
+                var realTimeRepo = MQReceiver.DataProcessing.Factories.RepositoryFactory.GetRealTimeDataRepository();
+                var exRightsRepo = MQReceiver.DataProcessing.Factories.RepositoryFactory.GetExRightsDataRepository();
+                dbWriter = new DailyDataDBWriter(stockRepo);
+                realTimeDbWriter = new RealTimeDataDBWriter(realTimeRepo);
+                exRightsDbWriter = new ExRightsDataDBWriter(exRightsRepo);
 
                 if (!dbWriter.TestConnection() || !realTimeDbWriter.TestConnection() || !exRightsDbWriter.TestConnection())
                 {
-                    Console.WriteLine("错误: PostgreSQL数据库连接失败！");
-                    Console.WriteLine("请检查数据库配置和连接。");
+                    Console.WriteLine("错误: 存储后端连接失败！");
+                    Console.WriteLine("请检查配置（PostgreSQL 或 RocksDB 路径）。");
                     return false;
                 }
-                Console.WriteLine("PostgreSQL数据库连接成功");
-                Console.WriteLine(DatabaseConnectionHelper.GetPoolInfo());
+                var backend = MQReceiver.DataProcessing.Factories.RepositoryFactory.GetCurrentBackend();
+                Console.WriteLine($"{backend} 存储连接成功");
+                if (backend == MQReceiver.DataProcessing.Factories.RepositoryFactory.StorageBackend.PostgreSQL)
+                    Console.WriteLine(DatabaseConnectionHelper.GetPoolInfo());
 
-                // 自动创建数据库表（如果不存在）
-                if (!DatabaseInitializer.Initialize())
+                // 仅 PostgreSQL 时自动创建数据库表
+                if (backend == MQReceiver.DataProcessing.Factories.RepositoryFactory.StorageBackend.PostgreSQL)
                 {
-                    Console.WriteLine("警告: 数据库表初始化失败，但服务将继续运行");
+                    if (!DatabaseInitializer.Initialize())
+                        Console.WriteLine("警告: 数据库表初始化失败，但服务将继续运行");
                 }
                 Console.WriteLine();
 
@@ -189,8 +184,6 @@ namespace MQReceiver.Services
                     realTimeDbWriter = null;
                     exRightsDbWriter = null;
 
-                    // 关闭Redis连接
-                    RedisHelper.Close();
                 }
                 _disposed = true;
             }
@@ -396,7 +389,7 @@ namespace MQReceiver.Services
                     }
                     
                     int savedCount = dbWriter.SaveDailyData(records);
-                    Console.WriteLine("成功保存 {0} 条日线数据到PostgreSQL", savedCount);
+                    Console.WriteLine("成功保存 {0} 条日线数据到{1}", savedCount, MQReceiver.DataProcessing.Factories.RepositoryFactory.GetCurrentBackend());
                 }
             }
             catch (Exception ex)
@@ -482,7 +475,7 @@ namespace MQReceiver.Services
                 if (records.Count > 0)
                 {
                     int savedCount = exRightsDbWriter.SaveExRightsData(records);
-                    Console.WriteLine("成功保存 {0} 条除权数据到PostgreSQL", savedCount);
+                    Console.WriteLine("成功保存 {0} 条除权数据到{1}", savedCount, MQReceiver.DataProcessing.Factories.RepositoryFactory.GetCurrentBackend());
                 }
             }
             catch (Exception ex)
@@ -521,19 +514,19 @@ namespace MQReceiver.Services
                         }
                         Console.WriteLine("已更新 {0} 条股票信息到内存缓存", stockInfoList.Count);
 
-                        // 2. 异步保存到数据库（后台执行，不阻塞主流程）
+                        // 2. 异步保存到当前配置的存储后端（后台执行，不阻塞主流程）
                         var listToSave = new List<(string StockCode, string StockName, ushort MarketCode)>(stockInfoList);
                         System.Threading.Tasks.Task.Run(() =>
                         {
                             try
                             {
-                                var repository = new PostgresStockDataRepository();
+                                var repository = MQReceiver.DataProcessing.Factories.RepositoryFactory.GetStockDataRepository();
                                 int savedCount = repository.SaveStockInfo(listToSave);
-                                Console.WriteLine("异步保存 {0} 条股票信息到数据库完成", savedCount);
+                                Console.WriteLine("异步保存 {0} 条股票信息到{1}完成", savedCount, MQReceiver.DataProcessing.Factories.RepositoryFactory.GetCurrentBackend());
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine("异步保存股票信息到数据库失败: {0}", ex.Message);
+                                Console.WriteLine("异步保存股票信息失败: {0}", ex.Message);
                             }
                         });
                     }

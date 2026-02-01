@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using MQReceiver.Services;
 
 namespace MQReceiver.Views
@@ -124,6 +125,33 @@ namespace MQReceiver.Views
         private void OnStockDoubleClick(string stockCode)
         {
             StockDoubleClick?.Invoke(this, stockCode);
+        }
+
+        /// <summary>
+        /// 应用主题（与 Mairui 一致：深色/浅色）
+        /// </summary>
+        public void ApplyTheme(bool isDark)
+        {
+            if (isDark)
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26));
+                if (PanelTitleText != null) PanelTitleText.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
+                if (DataListGrid != null)
+                {
+                    DataListGrid.Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E));
+                    DataListGrid.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
+                }
+            }
+            else
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xF5, 0xF5));
+                if (PanelTitleText != null) PanelTitleText.Foreground = Brushes.Black;
+                if (DataListGrid != null)
+                {
+                    DataListGrid.Background = Brushes.White;
+                    DataListGrid.Foreground = Brushes.Black;
+                }
+            }
         }
     }
 }

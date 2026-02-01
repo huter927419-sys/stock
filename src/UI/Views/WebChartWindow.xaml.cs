@@ -24,6 +24,7 @@ namespace MQReceiver.Views
         private string _stockCode;
         private RealTimeDataCache _realTimeCache;
         private DispatcherTimer _saveBoundsDebounce;
+        private DispatcherTimer _resizeDebounce;  // 窗口尺寸变化时防抖，减轻拖动卡顿
         private EventHandler _onLeftOrTopChangedHandler;
 
         // 盘中图表卡顿优化：同股票短时间内复用图表数据 + 预序列化 JSON，避免重复拉库与重复序列化
@@ -213,11 +214,22 @@ namespace MQReceiver.Views
         /// </summary>
         private void InitializeBoundsPersistence()
         {
-            _saveBoundsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            int debounceMs = AppConfigProvider.Instance.GetInt("ChartWindow_SaveBoundsDebounceMs", 600);
+            _saveBoundsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(200, debounceMs)) };
             _saveBoundsDebounce.Tick += (s, ev) =>
             {
                 _saveBoundsDebounce.Stop();
                 SaveWindowBoundsToConfig();
+            };
+            _resizeDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+            _resizeDebounce.Tick += async (s, ev) =>
+            {
+                _resizeDebounce.Stop();
+                if (_isWebViewInitialized && webView?.CoreWebView2 != null)
+                {
+                    try { await webView.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));"); }
+                    catch { }
+                }
             };
             _onLeftOrTopChangedHandler = (s, ev) => ScheduleSaveWindowBounds();
             DependencyPropertyDescriptor.FromProperty(Window.LeftProperty, typeof(Window)).AddValueChanged(this, _onLeftOrTopChangedHandler);
@@ -387,20 +399,18 @@ namespace MQReceiver.Views
                 // 如果数据还未加载，则异步加载
                 if (_chartData == null && !string.IsNullOrEmpty(_stockCode))
                 {
-                    // 重要：不要用 Task.Run 包住整个流程，否则 LoadChartDataAsync 的后续 UI 更新会跑到后台线程，引发跨线程异常
-                    // LoadChartDataAsync 内部已经用 Task.Run 执行耗时加载，这里直接 await 不会阻塞UI线程
                     await LoadChartDataAsync(_stockCode);
 
                     if (_chartData != null)
                     {
                         this.Title = $"股票图表 - {_chartData.StockName} ({_chartData.StockCode})";
-                        await SetChartData();
+                        // 用 Background 优先级渲染图表，保证窗口先显示、拖动不卡顿
+                        await Dispatcher.InvokeAsync(() => SetChartData(), DispatcherPriority.Background);
                     }
                 }
                 else if (_chartData != null)
                 {
-                    // 如果数据已加载，直接设置图表
-                    await SetChartData();
+                    await Dispatcher.InvokeAsync(() => SetChartData(), DispatcherPriority.Background);
                 }
             }
             catch (Exception ex)
@@ -518,7 +528,7 @@ namespace MQReceiver.Views
                     if (_chartData != null)
                     {
                         loadingText.Visibility = Visibility.Collapsed;
-                        await SetChartData();
+                        await Dispatcher.InvokeAsync(() => SetChartData(), DispatcherPriority.Background);
                     }
                 }
                 else
@@ -707,21 +717,12 @@ namespace MQReceiver.Views
                 webView.Dispose();
         }
 
-        private async void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             ScheduleSaveWindowBounds();
-            if (_isWebViewInitialized && webView?.CoreWebView2 != null)
-            {
-                try
-                {
-                    // 触发JavaScript的resize事件处理
-                    await webView.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));");
-                }
-                catch (Exception)
-                {
-                    // 忽略执行脚本时的异常（窗口正在关闭等情况）
-                }
-            }
+            // 防抖：拖动/缩放时不在每帧调用 JS resize，减轻卡顿
+            _resizeDebounce?.Stop();
+            _resizeDebounce?.Start();
         }
 
         /// <summary>

@@ -3,10 +3,14 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using MQReceiver.Calculators;
+using MQReceiver.Configuration;
 using MQReceiver.Models;
 using MQReceiver.Repositories;
 using MQReceiver.Helpers;
+using MQReceiver.DataProcessing.Factories;
 
 namespace MQReceiver.Cache
 {
@@ -22,17 +26,15 @@ namespace MQReceiver.Cache
         // 前复权计算器
         private readonly ExRightsAdjustmentCalculator _exRightsCalculator;
         
-        // 数据仓库
-        private readonly PostgresKlineDataRepository _klineRepository;
+        // 数据仓库（当前配置的存储后端）
+        private readonly IKlineDataRepository _klineRepository;
         private readonly IExRightsDataRepository _exRightsRepository;
         
         public KlineDataMemoryCache()
         {
             _dailyKlineCache = new ConcurrentDictionary<string, SortedDictionary<DateTime, DailyDataRecord>>();
-            
-            string connString = DatabaseConnectionHelper.BuildConnectionString();
-            _klineRepository = new PostgresKlineDataRepository(connString);
-            _exRightsRepository = new PostgresExRightsDataRepository(connString);
+            _klineRepository = RepositoryFactory.GetKlineDataRepository();
+            _exRightsRepository = RepositoryFactory.GetExRightsDataRepository();
             _exRightsCalculator = new ExRightsAdjustmentCalculator(_exRightsRepository, _klineRepository);
         }
         
@@ -42,21 +44,34 @@ namespace MQReceiver.Cache
         public void PreloadAllData(List<string> stockCodes)
         {
             var stopwatch = Stopwatch.StartNew();
-            Console.WriteLine($"[内存缓存] 开始预加载 {stockCodes.Count} 只股票的K线数据...");
+            int preloadYearsConfig = AppConfigProvider.Instance.GetInt("FilterService_PreloadYears", 0);
+            string scopeDesc = preloadYearsConfig <= 0 ? "全部历史数据" : $"最近 {preloadYearsConfig} 年";
+            Console.WriteLine($"[内存缓存] 开始预加载 {stockCodes.Count} 只股票的K线数据（{scopeDesc}）...");
             
             int loadedCount = 0;
             int failedCount = 0;
             var lockObj = new object();
-            
-            // 并行加载数据
-            System.Threading.Tasks.Parallel.ForEach(stockCodes, 
-                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-                stockCode =>
+            var config = AppConfigProvider.Instance;
+            int parallelism = config.GetInt("FilterService_PreloadMaxParallelism", 6);
+            if (parallelism <= 0)
+                parallelism = Math.Min(Environment.ProcessorCount, 8);
+            parallelism = Math.Max(2, Math.Min(parallelism, Environment.ProcessorCount));
+
+            Parallel.ForEach(stockCodes, new ParallelOptions { MaxDegreeOfParallelism = parallelism }, stockCode =>
             {
                 try
                 {
-                    // 加载日线数据（最近2年）
-                    DateTime startDate = DateTime.Today.AddYears(-2);
+                    Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+                    // 0=全部历史数据，>0=最近 N 年；全部数据时季K 最完整、筛选结果最全
+                    int preloadYears = AppConfigProvider.Instance.GetInt("FilterService_PreloadYears", 0);
+                    DateTime startDate;
+                    if (preloadYears <= 0)
+                        startDate = DateTime.MinValue;
+                    else
+                    {
+                        if (preloadYears > 20) preloadYears = 20;
+                        startDate = DateTime.Today.AddYears(-preloadYears);
+                    }
                     var dailyData = _klineRepository.GetDailyData(stockCode, startDate, DateTime.Today);
                     
                     if (dailyData != null && dailyData.Count > 0)
@@ -80,7 +95,7 @@ namespace MQReceiver.Cache
                         
                         _dailyKlineCache[stockCode] = sortedData;
                         
-                        int current = System.Threading.Interlocked.Increment(ref loadedCount);
+                        int current = Interlocked.Increment(ref loadedCount);
                         if (current % 500 == 0)
                         {
                             lock (lockObj)
@@ -88,6 +103,8 @@ namespace MQReceiver.Cache
                                 Console.WriteLine($"[内存缓存] 已加载 {current}/{stockCodes.Count} 只股票...");
                             }
                         }
+                        if (current % 200 == 0)
+                            Thread.Sleep(0);
                     }
                 }
                 catch (Exception ex)
@@ -101,6 +118,10 @@ namespace MQReceiver.Cache
                         }
                     }
                 }
+                finally
+                {
+                    try { Thread.CurrentThread.Priority = ThreadPriority.Normal; } catch { }
+                }
             });
             
             stopwatch.Stop();
@@ -111,6 +132,16 @@ namespace MQReceiver.Cache
             Console.WriteLine($"  内存占用: ~{(loadedCount * 500 * 50) / 1024 / 1024}MB");
         }
         
+        /// <summary>
+        /// 获取指定股票在缓存中的日期范围（供适配器/批量KD使用）
+        /// </summary>
+        public (DateTime? StartDate, DateTime? EndDate) GetDataDateRange(string stockCode)
+        {
+            if (!_dailyKlineCache.TryGetValue(stockCode, out var data) || data == null || data.Count == 0)
+                return (null, null);
+            return (data.Keys.Min(), data.Keys.Max());
+        }
+
         /// <summary>
         /// 获取指定股票的日线数据
         /// </summary>

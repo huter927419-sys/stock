@@ -120,5 +120,15 @@ namespace MQReceiver.Repositories
         /// 成交量
         /// </summary>
         public decimal Volume { get; set; }
+
+        /// <summary>
+        /// 成交金额（元）
+        /// </summary>
+        public decimal? Amount { get; set; }
+
+        /// <summary>
+        /// 换手率（%）
+        /// </summary>
+        public decimal? TurnoverRate { get; set; }
     }
 }

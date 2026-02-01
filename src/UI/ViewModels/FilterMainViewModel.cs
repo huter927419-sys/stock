@@ -35,7 +35,7 @@ namespace MQReceiver.ViewModels
         private readonly HashSet<string> _pendingUpdateStockCodes = new HashSet<string>();
         private readonly object _pendingUpdateLock = new object();
         private System.Threading.Timer _updateThrottleTimer;
-        private const int THROTTLE_INTERVAL_MS = 100; // 100ms内合并所有更新
+        private const int THROTTLE_INTERVAL_MS_DEFAULT = 100; // 默认100ms内合并所有更新
 
         // 表格1-6的默认最小值
         private decimal _table1WeeklyKDefaultMin = 0;
@@ -142,15 +142,37 @@ namespace MQReceiver.ViewModels
                 }
             }
             
-            // 重置节流定时器：如果100ms内没有新的更新，才真正执行UI更新
+            int throttleMs = GetThrottleIntervalMs();
             if (_updateThrottleTimer == null)
             {
-                _updateThrottleTimer = new System.Threading.Timer(OnThrottleTimerElapsed, null, THROTTLE_INTERVAL_MS, Timeout.Infinite);
+                _updateThrottleTimer = new System.Threading.Timer(OnThrottleTimerElapsed, null, throttleMs, Timeout.Infinite);
             }
             else
             {
-                _updateThrottleTimer.Change(THROTTLE_INTERVAL_MS, Timeout.Infinite);
+                _updateThrottleTimer.Change(throttleMs, Timeout.Infinite);
             }
+        }
+
+        /// <summary>
+        /// 获取涨幅刷新节流间隔（毫秒）：盘中可用更短间隔以提升刷新频率。
+        /// </summary>
+        private static int GetThrottleIntervalMs()
+        {
+            int normal = _configProvider.GetInt("FilterMain_PriceChangeThrottleMs", THROTTLE_INTERVAL_MS_DEFAULT);
+            int trading = _configProvider.GetInt("FilterMain_PriceChangeThrottleMsTrading", 0);
+            if (trading > 0 && IsInTradingHours())
+                return Math.Min(trading, normal);
+            return normal;
+        }
+
+        private static bool IsInTradingHours()
+        {
+            var now = DateTime.Now;
+            if (now.DayOfWeek == DayOfWeek.Saturday || now.DayOfWeek == DayOfWeek.Sunday)
+                return false;
+            var time = now.TimeOfDay;
+            return (time >= new TimeSpan(9, 30, 0) && time < new TimeSpan(11, 30, 0))
+                || (time >= new TimeSpan(13, 0, 0) && time < new TimeSpan(15, 0, 0));
         }
         
         /// <summary>

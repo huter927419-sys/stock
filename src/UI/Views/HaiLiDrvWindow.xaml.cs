@@ -4,19 +4,20 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Forms;
+using System.Windows.Media;
 using System.Windows.Threading;
 using MQReceiver.Cache;
 using MQReceiver.Configuration;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
 using MQReceiver.Services;
+using MQReceiver.UI.Configuration;
 
 namespace MQReceiver.Views
 {
     /// <summary>
     /// HaiLiDrvWindow.xaml 的交互逻辑
-    /// 海利驱动数据窗口（WPF版本）
-    /// 从内存缓存获取数据，替代原有的DLL调用方式
+    /// 海利驱动数据窗口（WPF版本），与 MairuiStockMonitor 菜单/界面/配置一致，数据源为 MQ
     /// </summary>
     public partial class HaiLiDrvWindow : Window
     {
@@ -30,6 +31,8 @@ namespace MQReceiver.Views
         private List<Services.HaiLiDataItem> _filteredDataItems; // 存储过滤后的数据（复用）
         private string _currentSearchText = ""; // 当前搜索文本
         private List<HaiLiDrvPanel> _panels = new List<HaiLiDrvPanel>(); // 面板列表
+        private HaiLiDrvFilterSettings _globalFilterSettings = new HaiLiDrvFilterSettings(); // 全局筛选（与 Mairui 一致）
+        private bool _isReceivingData = true; // 是否正在接收（启动/停止接收）
 
         /// <summary>
         /// 构造函数（集成模式：从主窗口调用）
@@ -99,32 +102,24 @@ namespace MQReceiver.Views
             // 窗口关闭时清理
             this.Closed += HaiLiDrvWindow_Closed;
 
+            AppendLog($"[{DateTime.Now:HH:mm:ss}] 海利驱动数据窗口已启动，数据源: MQ");
             // 初始加载数据
             RefreshData();
         }
 
         /// <summary>
-        /// 初始化面板
+        /// 初始化面板（与 Mairui 一致：优先从 Config/Boards.json 加载，否则用 HaiLiDrv_Panel* 配置）
         /// </summary>
         private void InitializePanels()
         {
             try
             {
-                // 从配置读取面板数量（默认1个，最多200个）
-                int panelCount = _configProvider.GetInt("HaiLiDrv_PanelCount", 1);
-                if (panelCount < 1) panelCount = 1;
-                if (panelCount > 200) panelCount = 200;
-                
-                Console.WriteLine($"[HaiLiDrvWindow] 初始化 {panelCount} 个面板");
-                
-                // 确保 PanelsContainer 已初始化
                 if (PanelsContainer == null)
                 {
                     Console.WriteLine("[HaiLiDrvWindow] 错误: PanelsContainer 未初始化");
                     return;
                 }
                 
-                // 清除现有面板
                 foreach (var panel in _panels)
                 {
                     if (panel != null)
@@ -135,33 +130,52 @@ namespace MQReceiver.Views
                 }
                 _panels.Clear();
                 
-                // 创建新面板
-                for (int i = 0; i < panelCount; i++)
+                // 优先从 Boards.json 加载（与 MairuiStockMonitor 一致）
+                var boardManager = new BoardManager();
+                var boards = boardManager.LoadBoards();
+                
+                if (boards != null && boards.Count > 0)
                 {
-                    var panel = new HaiLiDrvPanel();
-                    panel.PanelName = $"面板{i + 1}";
-                    panel.StockDoubleClick += Panel_StockDoubleClick;
-                    
-                    // 从配置读取该面板的股票代码列表
-                    string panelStockCodesKey = $"HaiLiDrv_Panel{i + 1}_StockCodes";
-                    string stockCodesConfig = _configProvider.GetString(panelStockCodesKey, "");
-                    if (!string.IsNullOrWhiteSpace(stockCodesConfig))
+                    Console.WriteLine($"[HaiLiDrvWindow] 从 Boards.json 加载 {boards.Count} 个板块");
+                    foreach (var board in boards)
                     {
-                        var codes = stockCodesConfig.Split(new[] { ',', ';', ' ', '\t', '\n', '\r' }, 
-                            StringSplitOptions.RemoveEmptyEntries)
-                            .Select(c => c.Trim())
-                            .Where(c => !string.IsNullOrEmpty(c))
-                            .ToList();
-                        panel.SetStockCodes(codes);
-                        Console.WriteLine($"[HaiLiDrvWindow] 面板{i + 1} 配置了 {codes.Count} 个股票代码");
+                        var panel = new HaiLiDrvPanel();
+                        panel.PanelName = board.Name ?? "未命名板块";
+                        panel.SetStockCodes(board.StockCodes ?? new List<string>());
+                        panel.Width = board.Width > 0 ? board.Width : 400;
+                        panel.Height = board.Height > 0 ? board.Height : 300;
+                        panel.StockDoubleClick += Panel_StockDoubleClick;
+                        PanelsContainer.Children.Add(panel);
+                        _panels.Add(panel);
                     }
-                    
-                    // 设置面板大小
-                    panel.Width = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Width", 400);
-                    panel.Height = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Height", 300);
-                    
-                    PanelsContainer.Children.Add(panel);
-                    _panels.Add(panel);
+                }
+                else
+                {
+                    // 回退：从配置读取面板数量
+                    int panelCount = _configProvider.GetInt("HaiLiDrv_PanelCount", 1);
+                    if (panelCount < 1) panelCount = 1;
+                    if (panelCount > 200) panelCount = 200;
+                    Console.WriteLine($"[HaiLiDrvWindow] 初始化 {panelCount} 个面板（配置）");
+                    for (int i = 0; i < panelCount; i++)
+                    {
+                        var panel = new HaiLiDrvPanel();
+                        panel.PanelName = $"面板{i + 1}";
+                        panel.StockDoubleClick += Panel_StockDoubleClick;
+                        string stockCodesConfig = _configProvider.GetString($"HaiLiDrv_Panel{i + 1}_StockCodes", "");
+                        if (!string.IsNullOrWhiteSpace(stockCodesConfig))
+                        {
+                            var codes = stockCodesConfig.Split(new[] { ',', ';', ' ', '\t', '\n', '\r' }, 
+                                StringSplitOptions.RemoveEmptyEntries)
+                                .Select(c => c.Trim())
+                                .Where(c => !string.IsNullOrEmpty(c))
+                                .ToList();
+                            panel.SetStockCodes(codes);
+                        }
+                        panel.Width = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Width", 400);
+                        panel.Height = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Height", 300);
+                        PanelsContainer.Children.Add(panel);
+                        _panels.Add(panel);
+                    }
                 }
                 
                 Console.WriteLine($"[HaiLiDrvWindow] 已创建 {_panels.Count} 个面板");
@@ -283,10 +297,9 @@ namespace MQReceiver.Views
         private void StartAutoRefresh()
         {
             _refreshTimer = new DispatcherTimer();
-            // 从配置文件读取刷新间隔
             int intervalSeconds = _configProvider.GetInt("HaiLiDrv_RefreshIntervalSeconds", 3);
             _refreshTimer.Interval = TimeSpan.FromSeconds(intervalSeconds);
-            _refreshTimer.Tick += (s, e) => RefreshData();
+            _refreshTimer.Tick += (s, e) => { if (_isReceivingData) RefreshData(); };
             _refreshTimer.Start();
             Console.WriteLine($"[HaiLiDrvWindow] 自动刷新间隔: {intervalSeconds}秒");
         }
@@ -304,13 +317,16 @@ namespace MQReceiver.Views
                 // 使用数据服务获取数据（自动判断是实时数据还是日线数据）
                 var items = _dataService.GetAllStockData(maxDisplayCount);
 
+                // 应用全局筛选（涨幅/日内涨幅，与 Mairui 一致）
+                var afterFilter = ApplyGlobalFilterToList(items);
+
                 // 更新UI（在UI线程）
                 Dispatcher.Invoke(() =>
                 {
-                    // 保存所有数据（未过滤）- 复用List，减少GC压力
+                    // 保存所有数据（已应用全局筛选）- 复用List
                     _allDataItems.Clear();
-                    _allDataItems.Capacity = Math.Max(_allDataItems.Capacity, items.Count);
-                    _allDataItems.AddRange(items);
+                    _allDataItems.Capacity = Math.Max(_allDataItems.Capacity, afterFilter.Count);
+                    _allDataItems.AddRange(afterFilter);
                     
                     // 应用搜索过滤（如果有搜索条件）- 复用List
                     List<Services.HaiLiDataItem> filteredData;
@@ -323,7 +339,11 @@ namespace MQReceiver.Views
                         filteredData = _allDataItems;
                     }
                     
-                    // 更新所有面板
+                    // 更新主数据表格（与 Mairui 数据面板一致）
+                    if (MainDataGrid != null)
+                        MainDataGrid.ItemsSource = filteredData;
+
+                    // 更新所有板块面板
                     foreach (var panel in _panels)
                     {
                         panel.UpdateData(filteredData);
@@ -337,6 +357,7 @@ namespace MQReceiver.Views
                     string panelInfo = $" | 面板: {_panels.Count}";
                     StatusText.Text = $"已加载 {totalCount} 条数据 ({dataSource}){filterInfo}{searchInfo}{panelInfo}";
                     InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 共 {displayCount} 条记录 | 数据源: {dataSource}{filterInfo}{searchInfo}{panelInfo}";
+                    AppendLog($"[{DateTime.Now:HH:mm:ss}] 已加载 {displayCount} 条 ({dataSource})");
                 });
             }
             catch (Exception ex)
@@ -355,6 +376,21 @@ namespace MQReceiver.Views
         private void RefreshButton_Click(object sender, RoutedEventArgs e)
         {
             RefreshData();
+        }
+
+        /// <summary>
+        /// 追加日志到日志面板（与 Mairui 一致）
+        /// </summary>
+        private void AppendLog(string message)
+        {
+            if (LogTextBox == null) return;
+            LogTextBox.AppendText(message + "\n");
+            LogTextBox.ScrollToEnd();
+        }
+
+        private void BtnClearLog_Click(object sender, RoutedEventArgs e)
+        {
+            if (LogTextBox != null) LogTextBox.Clear();
         }
 
         /// <summary>
@@ -378,6 +414,22 @@ namespace MQReceiver.Views
             }
             catch { }
             return "";
+        }
+
+        /// <summary>
+        /// 应用全局筛选（涨幅/日内涨幅，与 Mairui 一致，OR 关系）
+        /// </summary>
+        private List<Services.HaiLiDataItem> ApplyGlobalFilterToList(List<Services.HaiLiDataItem> sourceList)
+        {
+            if (_globalFilterSettings == null || (!_globalFilterSettings.EnableChangePercentFilter && !_globalFilterSettings.EnableIntradayChangeFilter))
+                return sourceList;
+            var result = new List<Services.HaiLiDataItem>(sourceList.Count);
+            foreach (var item in sourceList)
+            {
+                if (_globalFilterSettings.PassFilter(item.PriceChange, item.NewPrice, item.Open))
+                    result.Add(item);
+            }
+            return result;
         }
 
         /// <summary>
@@ -576,7 +628,92 @@ namespace MQReceiver.Views
             }
         }
 
+        // ----- 菜单：连接（与 Mairui 一致） -----
+        private void MenuStartReceive_Click(object sender, RoutedEventArgs e)
+        {
+            _isReceivingData = true;
+            if (_refreshTimer != null && !_refreshTimer.IsEnabled)
+                _refreshTimer.Start();
+            StatusText.Text = "已启动接收";
+        }
 
+        private void MenuStopReceive_Click(object sender, RoutedEventArgs e)
+        {
+            _isReceivingData = false;
+            if (_refreshTimer != null)
+                _refreshTimer.Stop();
+            StatusText.Text = "已停止接收";
+        }
+
+        private void MenuExit_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        // ----- 菜单：主题（与 Mairui 一致） -----
+        private void MenuDarkTheme_Click(object sender, RoutedEventArgs e)
+        {
+            MenuDarkTheme.IsChecked = true;
+            MenuLightTheme.IsChecked = false;
+            ApplyTheme(isDark: true);
+        }
+
+        private void MenuLightTheme_Click(object sender, RoutedEventArgs e)
+        {
+            MenuLightTheme.IsChecked = true;
+            MenuDarkTheme.IsChecked = false;
+            ApplyTheme(isDark: false);
+        }
+
+        private void ApplyTheme(bool isDark)
+        {
+            if (isDark)
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x1E, 0x1E, 0x1E));
+                if (StatusText != null) StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0xB8, 0xB8, 0xB8));
+                if (InfoText != null) InfoText.Foreground = new SolidColorBrush(Color.FromRgb(0xB8, 0xB8, 0xB8));
+            }
+            else
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0xF0));
+                if (StatusText != null) StatusText.Foreground = Brushes.Black;
+                if (InfoText != null) InfoText.Foreground = Brushes.Black;
+            }
+            foreach (var panel in _panels)
+                panel.ApplyTheme(isDark);
+        }
+
+        // ----- 菜单：视图（与 Mairui 一致） -----
+        private void MenuShowDataPanel_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataPanelBorder != null)
+                DataPanelBorder.Visibility = MenuShowDataPanel.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void MenuShowLogPanel_Click(object sender, RoutedEventArgs e)
+        {
+            if (LogPanelBorder != null)
+                LogPanelBorder.Visibility = MenuShowLogPanel.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // ----- 菜单：筛选（与 Mairui 一致） -----
+        private void MenuGlobalFilter_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dlg = new HaiLiDrvFilterSettingsDialog(_globalFilterSettings);
+                dlg.Owner = this;
+                if (dlg.ShowDialog() == true && dlg.FilterSettings != null)
+                {
+                    _globalFilterSettings = dlg.FilterSettings.Clone();
+                    RefreshData();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"打开筛选设置失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
 
         /// <summary>
         /// 窗口关闭时清理资源并保存配置

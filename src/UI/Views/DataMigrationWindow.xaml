@@ -1,0 +1,141 @@
+<Window x:Class="MQReceiver.Views.DataMigrationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="数据迁移工具 - PostgreSQL → RocksDB" Height="700" Width="900"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E1E"
+        ResizeMode="CanResize">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题栏 -->
+        <Border Grid.Row="0" Background="#252526" Padding="20,15" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="数据迁移工具" FontSize="24" FontWeight="Bold" Foreground="#D4D4D4" HorizontalAlignment="Center"/>
+                <TextBlock Text="PostgreSQL → RocksDB 文件系统存储" FontSize="12" Foreground="#858585" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 配置面板 -->
+        <Border Grid.Row="1" Background="#2D2D30" Padding="20" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- RocksDB 路径 -->
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="RocksDB 路径:" Foreground="#D4D4D4" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBox x:Name="TxtRocksDbPath" Grid.Row="0" Grid.Column="1" Text="data/rocksdb"
+                         Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555"
+                         Padding="8,5" Margin="0,5"/>
+                <Button x:Name="BtnBrowse" Grid.Row="0" Grid.Column="2" Content="浏览..."
+                        Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555"
+                        Padding="15,5" Margin="10,5,0,5" Click="BtnBrowse_Click"/>
+
+                <!-- 迁移选项 -->
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,10">
+                    <CheckBox x:Name="ChkSkipRealTime" Content="跳过实时数据" Foreground="#D4D4D4" Margin="0,0,20,0"/>
+                    <CheckBox x:Name="ChkSkipLogs" Content="跳过日志数据" Foreground="#D4D4D4" Margin="0,0,20,0"/>
+                    <CheckBox x:Name="ChkVerify" Content="验证迁移结果" Foreground="#D4D4D4" IsChecked="True"/>
+                </StackPanel>
+
+                <!-- 单只查询最早数据 -->
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,10,0,0">
+                    <TextBlock Text="查询单只最早:" Foreground="#D4D4D4" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox x:Name="TxtQueryStockCode" Width="80" Text="600656"
+                             Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555" Padding="6,4"/>
+                    <Button x:Name="BtnQueryOneEarliest" Content="查询该股最早数据" Margin="10,0,0,0"
+                            Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555" Padding="12,5" Click="BtnQueryOneEarliest_Click"/>
+                </StackPanel>
+
+                <!-- 连接状态 -->
+                <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,10,0,0">
+                    <TextBlock Text="PostgreSQL:" Foreground="#858585" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <Ellipse x:Name="PgStatusIndicator" Width="12" Height="12" Fill="#6B6B6B" Margin="0,0,5,0"/>
+                    <TextBlock x:Name="TxtPgStatus" Text="未检测" Foreground="#858585" VerticalAlignment="Center" Margin="0,0,30,0"/>
+
+                    <TextBlock Text="RocksDB:" Foreground="#858585" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <Ellipse x:Name="RocksStatusIndicator" Width="12" Height="12" Fill="#6B6B6B" Margin="0,0,5,0"/>
+                    <TextBlock x:Name="TxtRocksStatus" Text="未检测" Foreground="#858585" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 日志区域 -->
+        <Border Grid.Row="2" Background="#1E1E1E" Padding="20" BorderBrush="#3F3F46" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="迁移日志" FontSize="14" Foreground="#D4D4D4" Margin="0,0,0,10"/>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Background="#0D1117">
+                    <TextBox x:Name="TxtLog"
+                             TextWrapping="Wrap"
+                             IsReadOnly="True"
+                             Background="Transparent"
+                             Foreground="#8B949E"
+                             BorderThickness="0"
+                             FontFamily="Consolas"
+                             FontSize="12"
+                             Padding="10"
+                             VerticalScrollBarVisibility="Auto"/>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 底部按钮栏 -->
+        <Border Grid.Row="3" Background="#252526" Padding="20,15" BorderBrush="#3F3F46" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 进度信息 -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="TxtProgress" Text="就绪" Foreground="#858585" VerticalAlignment="Center"/>
+                    <ProgressBar x:Name="ProgressBar" Width="200" Height="20" Margin="15,0,0,0"
+                                 Visibility="Collapsed" Foreground="#4A9EFF" Background="#3C3C3C" BorderBrush="#555555"/>
+                </StackPanel>
+
+                <!-- 按钮 -->
+                <Button x:Name="BtnTestConnection" Grid.Column="1" Content="测试连接"
+                        Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555"
+                        Padding="20,8" Margin="0,0,10,0" Click="BtnTestConnection_Click"/>
+
+                <Button x:Name="BtnViewEarliest" Grid.Column="2" Content="查看最早数据"
+                        Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555"
+                        Padding="20,8" Margin="0,0,10,0" Click="BtnViewEarliest_Click"
+                        ToolTip="列出历史最长的股票并导出其最初若干条日线到报告文件"/>
+
+                <Button x:Name="BtnStartMigration" Grid.Column="3" Content="开始迁移"
+                        Background="#0E639C" Foreground="White" BorderBrush="#1177BB"
+                        Padding="30,8" Margin="0,0,10,0" Click="BtnStartMigration_Click"
+                        FontWeight="SemiBold"/>
+
+                <Button x:Name="BtnClose" Grid.Column="4" Content="关闭"
+                        Background="#3C3C3C" Foreground="#D4D4D4" BorderBrush="#555555"
+                        Padding="20,8" Click="BtnClose_Click"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

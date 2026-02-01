@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using MQReceiver.Helpers;
 using MQReceiver.Repositories;
+using MQReceiver.DataProcessing.Factories;
 
 namespace MQReceiver.Calculators
 {
@@ -29,13 +30,12 @@ namespace MQReceiver.Calculators
         private readonly object _cacheLock = new object();
 
         /// <summary>
-        /// 使用默认仓储初始化（向后兼容）
+        /// 使用当前配置的存储后端初始化（PostgreSQL 或 RocksDB）
         /// </summary>
         public ExRightsAdjustmentCalculator()
         {
-            string connectionString = DatabaseConnectionHelper.BuildConnectionString();
-            _exRightsRepository = new PostgresExRightsDataRepository(connectionString);
-            _klineRepository = new PostgresKlineDataRepository(connectionString);
+            _exRightsRepository = RepositoryFactory.GetExRightsDataRepository();
+            _klineRepository = RepositoryFactory.GetKlineDataRepository();
         }
 
         /// <summary>

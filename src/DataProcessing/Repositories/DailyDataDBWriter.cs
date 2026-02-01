@@ -6,7 +6,7 @@ using MQReceiver.Helpers;
 namespace MQReceiver.Repositories
 {
     /// <summary>
-    /// 日线数据数据库写入器 - 保存数据到PostgreSQL
+    /// 日线数据数据库写入器 - 保存数据到数据库
     /// 注意：此类保留用于向后兼容，新代码建议使用 IStockDataRepository
     /// </summary>
     public class DailyDataDBWriter

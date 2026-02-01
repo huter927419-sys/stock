@@ -50,5 +50,22 @@ namespace MQReceiver.Repositories
         /// 删除指定股票的所有数据
         /// </summary>
         bool DeleteStockData(string stockCode);
+
+        /// <summary>
+        /// 保存股票信息（代码、名称、市场等）
+        /// </summary>
+        /// <param name="stockInfoList">股票信息列表</param>
+        /// <returns>保存成功的记录数</returns>
+        int SaveStockInfo(List<(string StockCode, string StockName, ushort MarketCode)> stockInfoList);
+
+        /// <summary>
+        /// 获取所有股票代码与名称映射（用于 StockInfoCache 等）
+        /// </summary>
+        Dictionary<string, string> GetAllStockNames();
+
+        /// <summary>
+        /// 获取所有日线数据中的最新交易日期
+        /// </summary>
+        DateTime? GetLatestTradeDate();
     }
 }

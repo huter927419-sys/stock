@@ -13,6 +13,8 @@ using MQReceiver.Filters;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
 using MQReceiver.Repositories;
+using MQReceiver.DataProcessing.Factories;
+using MQReceiver.DataProcessing.Repositories;
 using Npgsql;
 
 namespace MQReceiver.Services
@@ -39,7 +41,11 @@ namespace MQReceiver.Services
         private System.Timers.Timer filterTimer;
         private readonly object _timerLock = new object();
         private int intervalMinutes;
+        private int intervalMinutesTrading;  // 盘中刷新间隔（分钟），当 intervalSecondsTrading 未用时生效
+        private int intervalSecondsTrading;  // 盘中刷新间隔（秒），>0 时优先于分钟，可实现十几秒刷新
         private volatile bool _isRunning = false;
+        private volatile bool _isFilterRunning = false;  // 防止重叠执行：上次未完成则跳过本次
+        private DateTime _lastFilterRunTime = DateTime.MinValue;  // 上次开始执行过滤的时间（用于“无新数据则跳过”）
         private volatile bool _disposed = false;
         
         // 性能优化：内存缓存和批量计算器
@@ -95,9 +101,15 @@ namespace MQReceiver.Services
 
         public FilterService()
         {
-            // 读取配置
             intervalMinutes = _configProvider.GetInt("FilterService_IntervalMinutes", 30);
+            intervalMinutesTrading = _configProvider.GetInt("FilterService_IntervalMinutesTrading", 0);
+            if (intervalMinutesTrading <= 0)
+                intervalMinutesTrading = intervalMinutes;
+            intervalSecondsTrading = _configProvider.GetInt("FilterService_IntervalSecondsTrading", 0);
         }
+
+        private int SkipIfNoRealtimeUpdateSec => _configProvider.GetInt("FilterService_SkipIfNoRealtimeUpdateSec", 0);
+        private int MinRunIntervalSec => _configProvider.GetInt("FilterService_MinRunIntervalSec", 120);
 
         /// <summary>
         /// 设置外部缓存（用于与MQ服务共享）
@@ -125,17 +137,6 @@ namespace MQReceiver.Services
                 Console.WriteLine("========================================");
                 Console.WriteLine();
 
-                // 初始化Redis连接
-                try
-                {
-                    RedisHelper.Initialize();
-                    Console.WriteLine("Redis连接初始化成功");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"警告: Redis初始化失败: {ex.Message}，将使用数据库直接查询");
-                }
-
                 // 初始化实时数据缓存和KD计算器
                 try
                 {
@@ -155,8 +156,8 @@ namespace MQReceiver.Services
                     dataBoundaryManager = new DataBoundaryManager(realTimeCache);
                     Console.WriteLine("数据边界管理器初始化成功");
 
-                    // 使用依赖注入创建KD计算器（支持实时数据合并）
-                    var klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
+                    // 使用当前配置的存储后端（PostgreSQL 或 RocksDB）创建 KD 计算器
+                    var klineRepository = RepositoryFactory.GetKlineDataRepository();
                     kdCalculator = new KDCalculator(klineRepository, realTimeCache, dataBoundaryManager);
                     
                     // 使用真实数据计算KD（不前复权，与图表KD计算保持一致）
@@ -180,21 +181,22 @@ namespace MQReceiver.Services
                     return false;
                 }
 
-                // 检查数据库连接（只读）
+                // 检查存储后端连接（只读）
                 try
                 {
-                    var dbWriter = new DailyDataDBWriter();
-                    if (!dbWriter.TestConnection())
+                    var stockRepo = RepositoryFactory.GetStockDataRepository();
+                    if (!stockRepo.TestConnection())
                     {
-                        Console.WriteLine("错误: PostgreSQL数据库连接失败！");
+                        Console.WriteLine("错误: 存储后端连接失败！");
                         return false;
                     }
-                    Console.WriteLine("PostgreSQL数据库连接成功");
+                    Console.WriteLine($"{RepositoryFactory.GetCurrentBackend()} 存储连接成功");
 
-                    // 自动创建数据库表（如果不存在）
-                    if (!DatabaseInitializer.Initialize())
+                    // 仅 PostgreSQL 时自动创建数据库表
+                    if (RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.PostgreSQL)
                     {
-                        Console.WriteLine("警告: 数据库表初始化失败，但服务将继续运行");
+                        if (!DatabaseInitializer.Initialize())
+                            Console.WriteLine("警告: 数据库表初始化失败，但服务将继续运行");
                     }
                 }
                 catch (Npgsql.PostgresException ex)
@@ -244,7 +246,7 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 启动定时计算任务
+        /// 启动定时计算任务。盘中（交易时段）使用更短间隔，盘外使用较长间隔。
         /// </summary>
         public void StartTimer()
         {
@@ -252,19 +254,24 @@ namespace MQReceiver.Services
             {
                 try
                 {
-                    // 如果已经在运行，直接返回
                     if (_isRunning)
                         return;
 
-                    var timer = new System.Timers.Timer(intervalMinutes * 60 * 1000);
+                    int intervalMs = GetNextIntervalMs();
+                    var timer = new System.Timers.Timer(intervalMs);
                     timer.Elapsed += OnFilterTimerElapsed;
-                    timer.AutoReset = true;
+                    timer.AutoReset = false;  // 每次触发后按当前是否交易时段重新设定间隔
                     timer.Start();
                     filterTimer = timer;
                     _isRunning = true;
-                    Console.WriteLine("KD计算定时任务已启动（每{0}分钟执行一次）", intervalMinutes);
+                    bool trading = IsInTradingHours();
+                    int nextMs = GetNextIntervalMs();
+                    if (trading && intervalSecondsTrading > 0)
+                        Console.WriteLine("KD计算定时任务已启动（盘中，下次{0}秒后执行）", nextMs / 1000);
+                    else
+                        Console.WriteLine("KD计算定时任务已启动（{0}时段，下次{1}分钟后执行）",
+                            trading ? "盘中" : "盘外", trading ? intervalMinutesTrading : intervalMinutes);
 
-                    // 触发服务启动事件
                     ServiceStarted?.Invoke(this, EventArgs.Empty);
                 }
                 catch (Exception ex)
@@ -272,6 +279,25 @@ namespace MQReceiver.Services
                     Console.WriteLine("警告: 启动定时计算任务失败: " + ex.Message);
                 }
             }
+        }
+
+        private static bool IsInTradingHours()
+        {
+            var now = DateTime.Now;
+            if (now.DayOfWeek == DayOfWeek.Saturday || now.DayOfWeek == DayOfWeek.Sunday)
+                return false;
+            var time = now.TimeOfDay;
+            return (time >= new TimeSpan(9, 30, 0) && time < new TimeSpan(11, 30, 0))
+                || (time >= new TimeSpan(13, 0, 0) && time < new TimeSpan(15, 0, 0));
+        }
+
+        private int GetNextIntervalMs()
+        {
+            if (!IsInTradingHours())
+                return Math.Max(1, intervalMinutes) * 60 * 1000;
+            if (intervalSecondsTrading > 0)
+                return Math.Max(15, intervalSecondsTrading) * 1000;  // 最少15秒，控制CPU占用
+            return Math.Max(1, intervalMinutesTrading) * 60 * 1000;
         }
 
         /// <summary>
@@ -384,31 +410,48 @@ namespace MQReceiver.Services
                     ServiceStarted = null;
                     ServiceStopped = null;
 
-                    // 关闭Redis连接
-                    RedisHelper.Close();
                 }
                 _disposed = true;
             }
         }
 
         /// <summary>
-        /// 定时器触发事件 - 执行KD计算
+        /// 定时器触发事件 - 执行KD计算，完成后按当前是否交易时段重新设定下次间隔。
+        /// 若上次计算尚未结束则跳过本次；若无新实时数据且距上次运行不足 MinRunIntervalSec 则跳过，以降低CPU。
         /// </summary>
         private void OnFilterTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            // 检查服务是否仍在运行
             if (!_isRunning)
                 return;
 
-            // 使用后台线程异步执行计算
+            if (_isFilterRunning)
+            {
+                RescheduleTimer();
+                return;
+            }
+
+            // 无新数据则跳过：实时缓存长时间未更新且距上次运行不足 MinRunIntervalSec 时不启动计算
+            if (SkipIfNoRealtimeUpdateSec > 0 && realTimeCache != null)
+            {
+                DateTime lastUpdate = realTimeCache.LastUpdateTime;
+                DateTime now = DateTime.Now;
+                double secSinceRealtime = (now - lastUpdate).TotalSeconds;
+                double secSinceLastRun = (now - _lastFilterRunTime).TotalSeconds;
+                if (lastUpdate != DateTime.MinValue && secSinceRealtime > SkipIfNoRealtimeUpdateSec && secSinceLastRun < MinRunIntervalSec)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[KD] 跳过本次（实时数据已 {secSinceRealtime:F0}秒 未更新，距上次运行 {secSinceLastRun:F0}秒）");
+                    RescheduleTimer();
+                    return;
+                }
+            }
+
+            _isFilterRunning = true;
+            _lastFilterRunTime = DateTime.Now;
             Task.Run(() =>
             {
-                // 再次检查，避免在Stop后仍执行
-                if (!_isRunning)
-                    return;
-
                 try
                 {
+                    if (!_isRunning) return;
                     Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
                     ExecuteFilter();
                 }
@@ -419,8 +462,24 @@ namespace MQReceiver.Services
                 finally
                 {
                     Thread.CurrentThread.Priority = ThreadPriority.Normal;
+                    _isFilterRunning = false;
+                    RescheduleTimer();
                 }
             });
+        }
+
+        private void RescheduleTimer()
+        {
+            lock (_timerLock)
+            {
+                if (!_isRunning) return;
+                var timer = filterTimer;
+                if (timer != null)
+                {
+                    timer.Interval = GetNextIntervalMs();
+                    timer.Start();
+                }
+            }
         }
 
         /// <summary>
@@ -453,8 +512,8 @@ namespace MQReceiver.Services
                     return;
                 }
 
-                // 获取当前数据状态
-                var repository = new PostgresStockDataRepository();
+                // 获取当前数据状态（当前配置的存储后端）
+                var repository = RepositoryFactory.GetStockDataRepository();
                 DateTime? latestDbDate = repository.GetLatestTradeDate();
                 DateTime currentCacheUpdateTime = realTimeCache.LastUpdateTime;
 
@@ -507,9 +566,25 @@ namespace MQReceiver.Services
                     {
                         Console.WriteLine("[性能优化] 首次执行，正在初始化内存缓存和批量KD计算器...");
                         
-                        // 获取所有股票代码
                         var stockCodes = realTimeCache.GetAllData().Select(d => d.StockCode).ToList();
                         DateTime initTargetDate = latestDbDate ?? DateTime.Today;
+
+                        // RocksDB 时快速检查是否有日线数据，避免大量「数据不足」后才发现未迁移
+                        if (RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.RocksDB ||
+                            RepositoryFactory.GetCurrentBackend() == RepositoryFactory.StorageBackend.FileBased)
+                        {
+                            var repo = RepositoryFactory.GetStockDataRepository();
+                            int withData = 0;
+                            int sampleSize = Math.Min(100, stockCodes.Count);
+                            for (int i = 0; i < sampleSize; i++)
+                            {
+                                var r = repo.GetDataDateRange(stockCodes[i]);
+                                if (r.StartDate.HasValue && r.EndDate.HasValue) withData++;
+                            }
+                            Console.WriteLine($"[批量KD计算] 数据源: {RepositoryFactory.GetCurrentBackend()}，抽样 {sampleSize} 只中有 {withData} 只有日线数据");
+                            if (withData == 0)
+                                Console.WriteLine("[批量KD计算] ⚠️ RocksDB 中未检测到日线数据，大量「数据不足」因此造成。请先完成「数据迁移」（主菜单 → 数据迁移 → 开始迁移）");
+                        }
                         
                         // 1. 创建内存缓存并预加载数据
                         _klineMemoryCache = new KlineDataMemoryCache();
@@ -633,10 +708,17 @@ namespace MQReceiver.Services
                 });
 
                 Console.WriteLine();
-                // 输出K线缓存统计信息
-                var klineRepository = new PostgresKlineDataRepository(DatabaseConnectionHelper.BuildConnectionString());
-                var (cacheCount, totalDataPoints) = klineRepository.GetCacheStats();
-                Console.WriteLine($"[K线缓存统计] 缓存股票数: {cacheCount}, 总数据点数: {totalDataPoints:N0}");
+                // 输出K线缓存统计信息（仅 PostgreSQL 有 GetCacheStats）
+                var klineRepository = RepositoryFactory.GetKlineDataRepository();
+                if (klineRepository is PostgresKlineDataRepository pgKline)
+                {
+                    var (cacheCount, totalDataPoints) = pgKline.GetCacheStats();
+                    Console.WriteLine($"[K线缓存统计] 缓存股票数: {cacheCount}, 总数据点数: {totalDataPoints:N0}");
+                }
+                else
+                {
+                    Console.WriteLine($"[K线缓存统计] 当前后端: {RepositoryFactory.GetCurrentBackend()}（无 PG 缓存统计）");
+                }
                 
                 Console.WriteLine("========== KD计算完成 ==========");
                 Console.WriteLine("实际执行时间: {0:F2} 秒 ({1:F1} 分钟)",
@@ -746,7 +828,7 @@ namespace MQReceiver.Services
         {
             try
             {
-                var repository = new PostgresStockDataRepository();
+                var repository = RepositoryFactory.GetStockDataRepository();
                 var allStockCodes = repository.GetAllStockCodes();
 
                 if (allStockCodes != null && allStockCodes.Count > 0)
@@ -849,9 +931,9 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 打印数据覆盖统计信息
+        /// 打印数据覆盖统计信息（使用当前配置的存储后端）
         /// </summary>
-        private void PrintDataCoverageStatistics(PostgresStockDataRepository repository, List<string> stockCodes)
+        private void PrintDataCoverageStatistics(IStockDataRepository repository, List<string> stockCodes)
         {
             try
             {

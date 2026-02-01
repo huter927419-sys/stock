@@ -188,9 +188,6 @@
     <Reference Include="WindowsBase" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
-    <Reference Include="StackExchange.Redis">
-      <HintPath>packages\StackExchange.Redis.2.6.122\lib\net461\StackExchange.Redis.dll</HintPath>
-    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
@@ -200,6 +197,7 @@
     <!-- src/Core/Configuration -->
     <Compile Include="src\Core\Configuration\IConfigurationProvider.cs" />
     <Compile Include="src\Core\Configuration\AppConfigProvider.cs" />
+    <Compile Include="src\Configuration\StorageConfiguration.cs" />
     <!-- src/Core/Helpers -->
     <Compile Include="src\Core\Helpers\JsonParserHelper.cs" />
     <Compile Include="src\Core\Helpers\StockDataParser.cs" />
@@ -225,16 +223,30 @@
     <Compile Include="src\DataProcessing\Calculators\BatchKDCalculator.cs" />
     <!-- src/DataProcessing/Repositories -->
     <Compile Include="src\DataProcessing\Repositories\IKlineDataRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\KlineDataMemoryCacheRepositoryAdapter.cs" />
     <Compile Include="src\DataProcessing\Repositories\PostgresKlineDataRepository.cs" />
+    <!-- 以下 RocksDB/FileBased 模块暂不参与编译（命名空间或依赖不完整） -->
+    <!-- <Compile Include="src\DataProcessing\Repositories\IRocksDBKlineDataRepository.cs" /> -->
+    <!-- <Compile Include="src\DataProcessing\Repositories\FileBasedKlineDataRepository.cs" /> -->
     <Compile Include="src\DataProcessing\Repositories\IStockDataRepository.cs" />
     <Compile Include="src\DataProcessing\Repositories\PostgresStockDataRepository.cs" />
     <Compile Include="src\DataProcessing\Repositories\IRealTimeDataRepository.cs" />
     <Compile Include="src\DataProcessing\Repositories\PostgresRealTimeDataRepository.cs" />
     <Compile Include="src\DataProcessing\Repositories\IExRightsDataRepository.cs" />
     <Compile Include="src\DataProcessing\Repositories\PostgresExRightsDataRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\IAdjustmentTaskRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\IDataReceiveLogRepository.cs" />
     <Compile Include="src\DataProcessing\Repositories\DailyDataDBWriter.cs" />
     <Compile Include="src\DataProcessing\Repositories\RealTimeDataDBWriter.cs" />
     <Compile Include="src\DataProcessing\Repositories\ExRightsDataDBWriter.cs" />
+    <Compile Include="src\DataProcessing\Repositories\RocksDBStockDataRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\RocksDBExRightsDataRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\RocksDBRealTimeDataRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\RocksDB AdjustmentTaskRepository.cs" />
+    <Compile Include="src\DataProcessing\Repositories\RocksDBDataReceiveLogRepository.cs" />
+    <!-- <Compile Include="src\DataProcessing\Factories\KlineDataRepositoryFactory.cs" /> -->
+    <Compile Include="src\DataProcessing\Factories\RepositoryFactory.cs" />
+    <Compile Include="src\Tools\DataMigrationTool.cs" />
     <!-- src/Core/Services -->
     <Compile Include="src\Core\Services\TradingCalendar.cs" />
     <Compile Include="src\Core\Services\DataBoundaryManager.cs" />
@@ -281,6 +293,28 @@
     <Compile Include="src\UI\Views\FilterSettingsDialog.xaml.cs">
       <DependentUpon>FilterSettingsDialog.xaml</DependentUpon>
     </Compile>
+    <Compile Include="src\UI\Views\StartupMenuWindow.xaml.cs">
+      <DependentUpon>StartupMenuWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="src\UI\Views\DataMigrationWindow.xaml.cs">
+      <DependentUpon>DataMigrationWindow.xaml</DependentUpon>
+    </Compile>
+    <!-- src/UI/Configuration (HaiLiDrv 与 Mairui 一致) -->
+    <Compile Include="src\UI\Configuration\HaiLiDrvFilterSettings.cs" />
+    <Compile Include="src\UI\Configuration\BoardConfig.cs" />
+    <Compile Include="src\UI\Configuration\BoardManager.cs" />
+    <Compile Include="src\UI\Views\HaiLiDrvPanel.xaml.cs">
+      <DependentUpon>HaiLiDrvPanel.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="src\UI\Views\HaiLiDrvStockCodeConfigDialog.xaml.cs">
+      <DependentUpon>HaiLiDrvStockCodeConfigDialog.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="src\UI\Views\HaiLiDrvFilterSettingsDialog.xaml.cs">
+      <DependentUpon>HaiLiDrvFilterSettingsDialog.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="src\UI\Views\HaiLiDrvWindow.xaml.cs">
+      <DependentUpon>HaiLiDrvWindow.xaml</DependentUpon>
+    </Compile>
     <!-- src/UI/ViewModels -->
     <Compile Include="src\UI\ViewModels\StockChartViewModel.cs" />
     <Compile Include="src\UI\ViewModels\FilterMainViewModel.cs" />
@@ -289,6 +323,8 @@
     <Compile Include="src\UI\Events\FilterResultEventArgs.cs" />
     <!-- src/UI/Services -->
     <Compile Include="src\UI\ChartService.cs" />
+    <!-- src/UI/Helpers -->
+    <Compile Include="src\UI\Helpers\WindowHelper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -321,6 +357,30 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="src\UI\Views\FilterSettingsDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="src\UI\Views\StartupMenuWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="src\UI\Views\DataMigrationWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="src\UI\Views\HaiLiDrvPanel.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="src\UI\Views\HaiLiDrvStockCodeConfigDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="src\UI\Views\HaiLiDrvFilterSettingsDialog.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="src\UI\Views\HaiLiDrvWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

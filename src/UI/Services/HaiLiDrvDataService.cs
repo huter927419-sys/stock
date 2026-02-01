@@ -7,6 +7,7 @@ using MQReceiver.Configuration;
 using MQReceiver.Helpers;
 using MQReceiver.Models;
 using MQReceiver.Repositories;
+using MQReceiver.DataProcessing.Factories;
 using Npgsql;
 
 namespace MQReceiver.Services
@@ -18,7 +19,7 @@ namespace MQReceiver.Services
     public class HaiLiDrvDataService
     {
         private RealTimeDataCache _realTimeCache;
-        private PostgresStockDataRepository _repository;
+        private IStockDataRepository _repository;
         private string _connectionString;
         private IConfigurationProvider _configProvider;
         private HashSet<string> _configuredStockCodes; // 配置的股票代码集合
@@ -31,7 +32,7 @@ namespace MQReceiver.Services
         public HaiLiDrvDataService(RealTimeDataCache realTimeCache, IConfigurationProvider configProvider = null)
         {
             _realTimeCache = realTimeCache;
-            _repository = new PostgresStockDataRepository();
+            _repository = RepositoryFactory.GetStockDataRepository();
             _configProvider = configProvider ?? AppConfigProvider.Instance;
             
             // 根据配置提供者构建连接字符串（独立模式使用HaiLiDrvConfigProvider的数据库配置）
@@ -159,6 +160,7 @@ namespace MQReceiver.Services
                         StockName = record.StockName ?? record.StockCode,
                         NewPrice = (double)record.NewPrice,
                         LastClose = (double)record.LastClose,
+                        Open = (double)record.Open,
                         PriceChange = record.LastClose != 0
                             ? (double)((record.NewPrice - record.LastClose) / record.LastClose * 100)
                             : 0,
@@ -229,6 +231,7 @@ namespace MQReceiver.Services
                         StockName = GetStockName(record.StockCode),
                         NewPrice = (double)record.ClosePrice,
                         LastClose = (double)lastClose,
+                        Open = (double)record.OpenPrice,
                         PriceChange = lastClose != 0 
                             ? (double)((record.ClosePrice - lastClose) / lastClose * 100)
                             : 0,
@@ -264,81 +267,57 @@ namespace MQReceiver.Services
         /// <summary>
         /// 获取指定日期的所有股票日线数据
         /// </summary>
+        /// <summary>
+        /// 获取指定日期的全部日线数据（使用当前配置的存储后端）
+        /// </summary>
         private List<Models.DailyDataRecord> GetDailyDataByDate(DateTime tradeDate)
         {
-            // 清空并复用List，减少GC压力
             _reusableDailyDataList.Clear();
-            
             try
             {
-                using (var connection = new NpgsqlConnection(_connectionString))
+                var codes = _repository.GetAllStockCodes();
+                if (codes == null || codes.Count == 0) return new List<Models.DailyDataRecord>(_reusableDailyDataList);
+                var day = tradeDate.Date;
+                foreach (var stockCode in codes)
                 {
-                    connection.Open();
-                    string sql = @"
-                        SELECT stock_code, trade_date, open_price, high_price, low_price, close_price, volume, amount
-                        FROM stock_daily_data
-                        WHERE trade_date = @trade_date
-                        ORDER BY amount DESC NULLS LAST";
-                    
-                    using (var command = new NpgsqlCommand(sql, connection))
+                    var list = _repository.GetDailyData(stockCode, day, day);
+                    if (list == null || list.Count == 0) continue;
+                    foreach (var k in list)
                     {
-                        command.Parameters.AddWithValue("@trade_date", tradeDate.Date);
-                        using (var reader = command.ExecuteReader())
+                        _reusableDailyDataList.Add(new Models.DailyDataRecord
                         {
-                            while (reader.Read())
-                            {
-                                _reusableDailyDataList.Add(new Models.DailyDataRecord
-                                {
-                                    StockCode = reader.GetString(0),
-                                    TradeDate = reader.GetDateTime(1),
-                                    OpenPrice = reader.GetDecimal(2),
-                                    HighPrice = reader.GetDecimal(3),
-                                    LowPrice = reader.GetDecimal(4),
-                                    ClosePrice = reader.GetDecimal(5),
-                                    Volume = reader.GetDecimal(6),
-                                    Amount = reader.IsDBNull(7) ? 0m : reader.GetDecimal(7),
-                                    MarketCode = 0, // 默认值，可以从stock_code判断
-                                    TradeDateTime = reader.GetDateTime(1),
-                                    TimeStamp = 0
-                                });
-                            }
-                        }
+                            StockCode = stockCode,
+                            TradeDate = k.TradeDate,
+                            OpenPrice = k.Open,
+                            HighPrice = k.High,
+                            LowPrice = k.Low,
+                            ClosePrice = k.Close,
+                            Volume = k.Volume,
+                            Amount = k.Amount ?? 0m,
+                            MarketCode = 0,
+                            TradeDateTime = k.TradeDate,
+                            TimeStamp = 0
+                        });
                     }
                 }
+                _reusableDailyDataList.Sort((a, b) => (b.Amount ?? 0m).CompareTo(a.Amount ?? 0m));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[HaiLiDrvDataService] 获取指定日期日线数据失败: {ex.Message}");
             }
-            
-            // 返回新列表（因为调用者可能会修改），但复用内部缓冲区
             return new List<Models.DailyDataRecord>(_reusableDailyDataList);
         }
 
         /// <summary>
-        /// 获取最新交易日
+        /// 获取最新交易日（使用当前配置的存储后端）
         /// </summary>
         private DateTime GetLatestTradeDate()
         {
             try
             {
-                using (var connection = new NpgsqlConnection(_connectionString))
-                {
-                    connection.Open();
-                    string sql = @"
-                        SELECT MAX(trade_date) 
-                        FROM stock_daily_data 
-                        WHERE trade_date <= CURRENT_DATE";
-                    
-                    using (var command = new NpgsqlCommand(sql, connection))
-                    {
-                        var result = command.ExecuteScalar();
-                        if (result != null && result != DBNull.Value)
-                        {
-                            return ((DateTime)result).Date;
-                        }
-                    }
-                }
+                var dt = _repository.GetLatestTradeDate();
+                return dt?.Date ?? DateTime.MinValue;
             }
             catch (Exception ex)
             {
@@ -348,34 +327,15 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 获取前一日收盘价
+        /// 获取前一日收盘价（使用当前配置的存储后端）
         /// </summary>
         private decimal? GetPreviousClosePrice(string stockCode, DateTime currentDate)
         {
             try
             {
-                using (var connection = new NpgsqlConnection(_connectionString))
-                {
-                    connection.Open();
-                    string sql = @"
-                        SELECT close_price 
-                        FROM stock_daily_data
-                        WHERE stock_code = @stock_code 
-                          AND trade_date < @current_date
-                        ORDER BY trade_date DESC
-                        LIMIT 1";
-                    
-                    using (var command = new NpgsqlCommand(sql, connection))
-                    {
-                        command.Parameters.AddWithValue("@stock_code", stockCode);
-                        command.Parameters.AddWithValue("@current_date", currentDate.Date);
-                        var result = command.ExecuteScalar();
-                        if (result != null && result != DBNull.Value)
-                        {
-                            return (decimal)result;
-                        }
-                    }
-                }
+                var data = _repository.GetDailyData(stockCode, currentDate.AddMonths(-3), currentDate.AddDays(-1));
+                var last = data?.OrderByDescending(d => d.TradeDate).FirstOrDefault();
+                return last?.Close;
             }
             catch (Exception ex)
             {
@@ -410,6 +370,8 @@ namespace MQReceiver.Services
         public string StockName { get; set; }
         public double NewPrice { get; set; }
         public double LastClose { get; set; }
+        /// <summary>开盘价（用于日内涨幅筛选）</summary>
+        public double Open { get; set; }
         public double PriceChange { get; set; }
         public double Volume { get; set; }
         public double Amount { get; set; }
