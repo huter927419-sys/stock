@@ -102,6 +102,15 @@ namespace MQReceiver.Views
 
             // 窗口关闭时清理
             this.Closed += HaiLiDrvWindow_Closed;
+            
+            // 窗口加载完成后调整面板宽度（延迟执行，确保ActualWidth已设置）
+            this.Loaded += (s, e) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    AdjustPanelWidths();
+                }), DispatcherPriority.Loaded);
+            };
 
             AppendLog($"[{DateTime.Now:HH:mm:ss}] 海利驱动数据窗口已启动，数据源: MQ");
             // 初始加载数据
@@ -145,9 +154,11 @@ namespace MQReceiver.Views
                         var stockCodes = board.StockCodes ?? new List<string>();
                         panel.SetStockCodes(stockCodes);
                         Console.WriteLine($"[HaiLiDrvWindow] 板块 \"{board.Name}\": 配置了 {stockCodes.Count} 个股票代码");
-                        // 设置面板大小（流式布局：面板会根据内容自动排列）
+                        // 设置面板大小（流式布局：面板会根据窗口宽度动态调整）
                         // 注意：不要设置为 double.NaN，WrapPanel 需要明确的宽度和高度才能正确换行
-                        panel.Width = board.Width > 0 ? board.Width : 400;
+                        // 强制根据窗口宽度动态计算，确保一行至少6个面板（忽略配置文件中的固定宽度）
+                        double availableWidth = this.ActualWidth > 0 ? this.ActualWidth - 30 : 2500;
+                        panel.Width = Math.Max(300, Math.Min(600, (availableWidth - 80) / 6.0));
                         panel.Height = board.Height > 0 ? board.Height : 300;
                         // 确保面板不会拉伸填充整个空间
                         panel.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
@@ -179,7 +190,9 @@ namespace MQReceiver.Views
                                 .ToList();
                             panel.SetStockCodes(codes);
                         }
-                        panel.Width = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Width", 400);
+                        // 强制根据窗口宽度动态计算，确保一行至少6个面板（忽略配置文件中的固定宽度）
+                        double availableWidth = this.ActualWidth > 0 ? this.ActualWidth - 30 : 2500;
+                        panel.Width = Math.Max(300, Math.Min(600, (availableWidth - 80) / 6.0));
                         panel.Height = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Height", 300);
                         // 确保面板不会拉伸填充整个空间
                         panel.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
@@ -190,6 +203,12 @@ namespace MQReceiver.Views
                 }
                 
                 Console.WriteLine($"[HaiLiDrvWindow] 已创建 {_panels.Count} 个面板");
+                
+                // 面板创建后立即调整宽度（确保使用当前窗口宽度）
+                if (this.IsLoaded && this.ActualWidth > 0)
+                {
+                    AdjustPanelWidths();
+                }
             }
             catch (Exception ex)
             {
@@ -235,12 +254,11 @@ namespace MQReceiver.Views
                             this.WindowStartupLocation = WindowStartupLocation.Manual;
                             this.Left = left;
                             this.Top = top;
-                            // 限制宽度为固定值，确保流式布局生效
-                            this.Width = Math.Min(width, 1200);
-                            this.Height = height;
-                            // 不最大化，保持固定大小
+                            // 使用配置文件中的宽度和高度
+                            this.Width = Math.Max(800, width); // 最小宽度800
+                            this.Height = Math.Max(600, height); // 最小高度600
                             this.WindowState = WindowState.Normal;
-                            Console.WriteLine($"[HaiLiDrvWindow] 从配置文件恢复窗口位置: ({left}, {top}, {this.Width}, {height})");
+                            Console.WriteLine($"[HaiLiDrvWindow] 从配置文件恢复窗口位置: ({left}, {top}, {this.Width}, {this.Height})");
                             return;
                         }
                     }
@@ -255,14 +273,14 @@ namespace MQReceiver.Views
                     var bounds = secondaryScreen.Bounds;
                     
                     this.WindowStartupLocation = WindowStartupLocation.Manual;
-                    // 固定宽度，居中显示
-                    this.Width = 1200;
-                    this.Height = bounds.Height;
+                    // 默认宽度：确保一行至少显示6个面板（6 * 400 + 边距 ≈ 2500）
+                    this.Width = Math.Min(2500, bounds.Width - 40);
+                    this.Height = bounds.Height - 40;
                     this.Left = bounds.Left + (bounds.Width - this.Width) / 2;
-                    this.Top = bounds.Top;
+                    this.Top = bounds.Top + 20;
                     this.WindowState = WindowState.Normal;
                     
-                    Console.WriteLine($"[HaiLiDrvWindow] 窗口已设置到附加屏: 宽度固定为{this.Width}");
+                    Console.WriteLine($"[HaiLiDrvWindow] 窗口已设置到附加屏: 宽度={this.Width}");
                 }
                 else
                 {
@@ -271,13 +289,13 @@ namespace MQReceiver.Views
                     var bounds = primaryScreen.Bounds;
                     
                     this.WindowStartupLocation = WindowStartupLocation.Manual;
-                    // 固定宽度，居中显示
-                    this.Width = 1200;
+                    // 默认宽度：确保一行至少显示6个面板
+                    this.Width = Math.Min(2500, bounds.Width - 40);
                     this.Height = bounds.Height / 2;
                     this.Left = bounds.Left + (bounds.Width - this.Width) / 2;
                     this.Top = bounds.Top + bounds.Height / 4;
                     
-                    Console.WriteLine($"[HaiLiDrvWindow] 只有一个屏幕，窗口设置在主屏: 宽度固定为{this.Width}");
+                    Console.WriteLine($"[HaiLiDrvWindow] 只有一个屏幕，窗口设置在主屏: 宽度={this.Width}");
                 }
             }
             catch (Exception ex)
@@ -286,25 +304,111 @@ namespace MQReceiver.Views
             }
         }
 
+        private DispatcherTimer _saveBoundsDebounce;
+        
         /// <summary>
-        /// 窗口状态变化事件处理（确保最大化时保持固定宽度）
+        /// 窗口大小变化事件处理（防抖保存窗口大小到配置文件）
         /// </summary>
-        private void Window_StateChanged(object sender, EventArgs e)
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (this.WindowState == WindowState.Maximized)
+            // 防抖保存，避免频繁写入配置文件
+            if (_saveBoundsDebounce == null)
             {
-                // 最大化时恢复为普通状态，保持固定宽度
-                this.WindowState = WindowState.Normal;
-                // 设置窗口为屏幕高度，但保持固定宽度
-                var screen = Screen.FromPoint(new System.Drawing.Point((int)(this.Left + this.Width / 2), (int)(this.Top + this.Height / 2)));
-                if (screen != null)
+                _saveBoundsDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                _saveBoundsDebounce.Tick += (s, args) =>
                 {
-                    this.Height = screen.WorkingArea.Height;
-                    this.Top = screen.WorkingArea.Top;
-                    // 保持宽度为1200，居中显示
-                    this.Left = screen.WorkingArea.Left + (screen.WorkingArea.Width - 1200) / 2;
-                    this.Width = 1200;
+                    _saveBoundsDebounce.Stop();
+                    SaveWindowBounds();
+                };
+            }
+            
+            _saveBoundsDebounce.Stop();
+            _saveBoundsDebounce.Start();
+            
+            // 根据窗口宽度动态调整面板宽度，确保一行至少显示6个面板
+            AdjustPanelWidths();
+        }
+        
+        /// <summary>
+        /// 窗口关闭事件处理（保存窗口位置和大小）
+        /// </summary>
+        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            SaveWindowBounds();
+        }
+        
+        /// <summary>
+        /// 保存窗口位置和大小到配置文件
+        /// </summary>
+        private void SaveWindowBounds()
+        {
+            try
+            {
+                if (this.WindowState == WindowState.Normal)
+                {
+                    _configProvider.SetValue("HaiLiDrvWindow_Left", this.Left.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    _configProvider.SetValue("HaiLiDrvWindow_Top", this.Top.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    _configProvider.SetValue("HaiLiDrvWindow_Width", this.Width.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    _configProvider.SetValue("HaiLiDrvWindow_Height", this.Height.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    Console.WriteLine($"[HaiLiDrvWindow] 已保存窗口位置和大小: ({this.Left}, {this.Top}, {this.Width}, {this.Height})");
                 }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[HaiLiDrvWindow] 保存窗口位置失败: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 根据窗口宽度动态调整面板宽度，确保一行至少显示6个面板
+        /// </summary>
+        private void AdjustPanelWidths()
+        {
+            try
+            {
+                if (_panels == null || _panels.Count == 0)
+                    return;
+                
+                // 如果窗口还未加载完成，使用默认宽度
+                if (this.ActualWidth <= 0)
+                {
+                    Console.WriteLine($"[HaiLiDrvWindow] 窗口宽度未就绪，跳过调整面板宽度");
+                    return;
+                }
+                
+                // 计算可用宽度（窗口宽度减去边距和滚动条）
+                double availableWidth = this.ActualWidth - 30; // 减去左右边距和滚动条
+                
+                if (availableWidth <= 0)
+                    return;
+                
+                // 确保一行至少显示6个面板
+                // 面板宽度 = (可用宽度 - 面板间距) / 6
+                // 面板间距：每个面板左右各8px，共16px，6个面板共5个间距 = 80px
+                double panelWidth = (availableWidth - 80) / 6.0;
+                
+                // 限制面板宽度范围：最小300，最大600
+                panelWidth = Math.Max(300, Math.Min(600, panelWidth));
+                
+                // 强制更新所有面板的宽度（即使之前设置了固定值）
+                bool hasChange = false;
+                foreach (var panel in _panels)
+                {
+                    if (panel != null && Math.Abs(panel.Width - panelWidth) > 1)
+                    {
+                        panel.Width = panelWidth;
+                        hasChange = true;
+                    }
+                }
+                
+                if (hasChange)
+                {
+                    Console.WriteLine($"[HaiLiDrvWindow] ✅ 已调整面板宽度: 窗口宽度={this.ActualWidth:F0}, 可用宽度={availableWidth:F0}, 面板宽度={panelWidth:F0}, 一行可显示约{Math.Floor(availableWidth / (panelWidth + 16))}个面板");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[HaiLiDrvWindow] 调整面板宽度失败: {ex.Message}");
             }
         }
 
@@ -375,20 +479,9 @@ namespace MQReceiver.Views
                     // 使用数据服务获取数据（自动判断是实时数据还是日线数据）
                     // 这个操作可能涉及数据库查询，在后台线程执行
                     var items = _dataService.GetAllStockData(maxDisplayCount);
-                    Console.WriteLine($"[HaiLiDrvWindow] 数据服务返回 {items.Count} 条数据");
-                    if (items.Count > 0)
-                    {
-                        Console.WriteLine($"[HaiLiDrvWindow] 数据示例（前3条）:");
-                        for (int i = 0; i < Math.Min(3, items.Count); i++)
-                        {
-                            var item = items[i];
-                            Console.WriteLine($"  [{i}] 代码={item.StockCode}, 名称={item.StockName}, 最新价={item.NewPrice}, 涨跌幅={item.PriceChange:F2}%");
-                        }
-                    }
 
                     // 应用全局筛选（涨幅/日内涨幅，与 Mairui 一致）
                     var afterFilter = ApplyGlobalFilterToList(items);
-                    Console.WriteLine($"[HaiLiDrvWindow] 全局筛选后剩余 {afterFilter.Count} 条数据");
 
                     // 更新UI（切换到UI线程，使用异步方式避免阻塞）
                     Dispatcher.InvokeAsync(() =>
@@ -412,16 +505,10 @@ namespace MQReceiver.Views
                             }
                             
                             // 更新所有板块面板（传入所有数据，让面板自己根据配置的股票代码过滤）
-                            Console.WriteLine($"[HaiLiDrvWindow] 开始更新 {_panels.Count} 个面板，传入 {_allDataItems.Count} 条数据");
-                            if (_allDataItems.Count > 0)
-                            {
-                                Console.WriteLine($"[HaiLiDrvWindow] 数据中的股票代码示例（前20个）: {string.Join(", ", _allDataItems.Take(20).Select(d => d.StockCode))}");
-                            }
                             foreach (var panel in _panels)
                             {
                                 panel.UpdateData(_allDataItems);
                             }
-                            Console.WriteLine($"[HaiLiDrvWindow] 面板更新完成");
                             
                             // 判断盘中/盘后状态
                             bool isTradingTime = _dataService.IsTradingTime();

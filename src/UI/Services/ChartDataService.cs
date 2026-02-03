@@ -47,7 +47,6 @@ namespace MQReceiver.Services
                     var age = (DateTime.Now - cached.cachedAt).TotalSeconds;
                     if (age < CacheTTLSeconds)
                     {
-                        Console.WriteLine($"[ChartDataService] 使用缓存数据: {stockCode}（{age:F0}秒前）");
                         return cached.data;
                     }
                 }
@@ -58,10 +57,9 @@ namespace MQReceiver.Services
             {
                 if (_loadingSet.Contains(stockCode))
                 {
-                    Console.WriteLine($"[ChartDataService] {stockCode} 正在加载中，等待完成...");
-                    // 等待加载完成（最多等待5秒）
+                    // 等待加载完成（最多等待3秒）
                     int waitCount = 0;
-                    while (_loadingSet.Contains(stockCode) && waitCount < 50)
+                    while (_loadingSet.Contains(stockCode) && waitCount < 30)
                     {
                         System.Threading.Thread.Sleep(100);
                         waitCount++;
@@ -82,12 +80,11 @@ namespace MQReceiver.Services
             try
             {
                 // 在后台线程加载数据
+                // 性能优化：限制图表显示的K线数据量（最近2年约500个交易日，足够显示）
+                // 注意：KD计算仍然需要所有历史数据，但图表K线显示可以只显示最近的数据
                 var chartData = await Task.Run(() =>
                 {
-                    Console.WriteLine($"[ChartDataService] 开始加载图表数据: {stockCode}");
-                    var data = _chartService.LoadChartData(stockCode, 0);
-                    Console.WriteLine($"[ChartDataService] 图表数据加载完成: {stockCode}");
-                    return data;
+                    return _chartService.LoadChartData(stockCode, 500); // 只加载最近2年的K线数据用于图表显示
                 });
                 
                 // 更新缓存

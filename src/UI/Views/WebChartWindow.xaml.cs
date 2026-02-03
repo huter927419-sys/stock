@@ -374,9 +374,6 @@ namespace MQReceiver.Views
                         return;
                     }
                 }
-                // 使用独立的图表数据服务（已优化，带缓存）
-                Console.WriteLine($"[图表数据加载] 开始异步加载股票: {stockCode}");
-                
                 // 优先使用独立的数据服务（带缓存和预加载优化）
                 if (_chartDataService != null)
                 {
@@ -388,14 +385,14 @@ namespace MQReceiver.Views
                     await Task.Run(() =>
                     {
                         var chartService = new ChartService(_realTimeCache);
-                        _chartData = chartService.LoadChartData(stockCode, 0);
+                        _chartData = chartService.LoadChartData(stockCode, 500); // 限制数据量提升性能
                     });
                 }
                 
                 if (_chartData == null) return;
                 
                 // 预运算：在后台一次性序列化为图表 JSON 并写入缓存，后续 SetChartData 直接复用
-                string chartJson = ConvertToChartJson(_chartData);
+                string chartJson = await Task.Run(() => ConvertToChartJson(_chartData));
                 lock (_chartDataCacheLock)
                 {
                     _chartDataCache[stockCode] = (_chartData, DateTime.Now, chartJson);
@@ -416,6 +413,8 @@ namespace MQReceiver.Views
                     return;
                 }
                 
+                // 性能优化：减少日志输出，仅在调试模式下输出详细信息
+#if DEBUG
                 Console.WriteLine($"[图表数据加载] ✅ 数据加载成功");
                 Console.WriteLine($"  - 股票代码: {_chartData.StockCode}");
                 Console.WriteLine($"  - 股票名称: {_chartData.StockName}");
@@ -423,17 +422,7 @@ namespace MQReceiver.Views
                 Console.WriteLine($"  - 周KD数量: {_chartData.WeeklyKD?.Count ?? 0}");
                 Console.WriteLine($"  - 月KD数量: {_chartData.MonthlyKD?.Count ?? 0}");
                 Console.WriteLine($"  - 季KD数量: {_chartData.QuarterlyKD?.Count ?? 0}");
-                
-                if (_chartData.DailyKline?.Count > 0)
-                {
-                    Console.WriteLine($"  - 日K线日期范围: {_chartData.DailyKline.First().Date:yyyy-MM-dd} ~ {_chartData.DailyKline.Last().Date:yyyy-MM-dd}");
-                }
-                
-                if (_chartData.WeeklyKD?.Count > 0)
-                {
-                    Console.WriteLine($"  - 周KD日期范围: {_chartData.WeeklyKD.First().Date:yyyy-MM-dd} ~ {_chartData.WeeklyKD.Last().Date:yyyy-MM-dd}");
-                    Console.WriteLine($"  - 周KD最新值: K={_chartData.WeeklyKD.Last().K:F2}, D={_chartData.WeeklyKD.Last().D:F2}, 差值={(_chartData.WeeklyKD.Last().K - _chartData.WeeklyKD.Last().D):F2}");
-                }
+#endif
                 
                 if (_chartData.DailyKline.Count == 0)
                 {
@@ -445,8 +434,18 @@ namespace MQReceiver.Views
                 }
 
                 this.Title = $"股票图表 - {_chartData.StockName} ({_chartData.StockCode})";
-                Console.WriteLine($"[图表数据加载] ✅ 加载完成");
-                Console.WriteLine($"═══════════════════════════════════════════════════════");
+                
+                // 如果 WebView 已初始化，立即设置图表数据
+                if (_isWebViewInitialized && webView != null && webView.CoreWebView2 != null && !IsClosing && this.IsLoaded)
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        if (!IsClosing && this.IsLoaded && webView != null && webView.CoreWebView2 != null)
+                        {
+                            await SetChartData();
+                        }
+                    }, DispatcherPriority.Background);
+                }
             }
             catch (Exception ex)
             {
@@ -490,16 +489,42 @@ namespace MQReceiver.Views
                 {
                     await LoadChartDataAsync(_stockCode);
 
+                    // 检查窗口状态（数据加载可能耗时）
+                    if (IsClosing || !this.IsLoaded || webView == null || webView.CoreWebView2 == null)
+                    {
+                        Console.WriteLine("[WebChartWindow] Window_Loaded: 窗口已关闭或WebView不可用，跳过设置数据");
+                        return;
+                    }
+
                     if (_chartData != null)
                     {
                         this.Title = $"股票图表 - {_chartData.StockName} ({_chartData.StockCode})";
                         // 用 Background 优先级渲染图表，保证窗口先显示、拖动不卡顿
-                        await Dispatcher.InvokeAsync(() => SetChartData(), DispatcherPriority.Background);
+                        await Dispatcher.InvokeAsync(async () =>
+                        {
+                            if (!IsClosing && this.IsLoaded && webView != null && webView.CoreWebView2 != null)
+                            {
+                                await SetChartData();
+                            }
+                        }, DispatcherPriority.Background);
                     }
                 }
                 else if (_chartData != null)
                 {
-                    await Dispatcher.InvokeAsync(() => SetChartData(), DispatcherPriority.Background);
+                    // 检查窗口状态
+                    if (IsClosing || !this.IsLoaded || webView == null || webView.CoreWebView2 == null)
+                    {
+                        Console.WriteLine("[WebChartWindow] Window_Loaded: 窗口已关闭或WebView不可用，跳过设置数据");
+                        return;
+                    }
+                    
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        if (!IsClosing && this.IsLoaded && webView != null && webView.CoreWebView2 != null)
+                        {
+                            await SetChartData();
+                        }
+                    }, DispatcherPriority.Background);
                 }
             }
             catch (Exception ex)
@@ -609,20 +634,57 @@ namespace MQReceiver.Views
             // 等待页面加载完成
             webView.NavigationCompleted += async (s, args) =>
             {
-                if (args.IsSuccess)
+                try
                 {
+                    // 检查窗口状态和 WebView 是否可用
+                    if (IsClosing || !this.IsLoaded || webView == null || webView.CoreWebView2 == null)
+                    {
+                        Console.WriteLine("[WebView初始化] ⚠️ 页面导航完成，但窗口已关闭或WebView不可用，跳过设置数据");
+                        return;
+                    }
+                    
+                    if (args.IsSuccess)
+                    {
                     Console.WriteLine("[WebView初始化] ✅ 页面导航成功");
                     Console.WriteLine("[WebView初始化] 准备设置图表数据...");
                     // 页面就绪后：如果数据已加载，立即渲染；否则保持“加载中”，等待数据加载完成后再渲染
                     if (_chartData != null)
                     {
+                        // 再次检查窗口状态（可能在检查后发生了变化）
+                        if (IsClosing || !this.IsLoaded || webView == null || webView.CoreWebView2 == null)
+                        {
+                            Console.WriteLine("[WebView初始化] ⚠️ 窗口状态已变化，跳过设置数据");
+                            return;
+                        }
+                        
                         loadingText.Visibility = Visibility.Collapsed;
-                        await Dispatcher.InvokeAsync(() => SetChartData(), DispatcherPriority.Background);
+                        var task = Dispatcher.InvokeAsync(async () =>
+                        {
+                            // 第三次检查（在UI线程中）
+                            if (!IsClosing && this.IsLoaded && webView != null && webView.CoreWebView2 != null)
+                            {
+                                await SetChartData();
+                            }
+                        }, DispatcherPriority.Background);
+                        await task; // 等待任务完成
+                    }
+                    else
+                    {
+                        Console.WriteLine("[WebView初始化] ⚠️ 图表数据尚未加载，等待数据加载完成...");
+                    }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[WebView初始化] ❌ 页面导航失败: {args.WebErrorStatus}");
                     }
                 }
-                else
+                catch (ObjectDisposedException)
                 {
-                    Console.WriteLine($"[WebView初始化] ❌ 页面导航失败: {args.WebErrorStatus}");
+                    Console.WriteLine("[WebView初始化] ⚠️ WebView对象已释放，无法设置数据");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[WebView初始化] ⚠️ 设置图表数据时出错: {ex.Message}");
                 }
             };
             
@@ -685,6 +747,7 @@ namespace MQReceiver.Views
                 }
                 if (string.IsNullOrEmpty(chartJson))
                 {
+                    // 在后台线程序列化JSON，避免阻塞UI
                     chartJson = await Task.Run(() => ConvertToChartJson(_chartData));
                     // 计算后写回缓存，供同股票再次 SetChartData（如页面重载）时复用
                     lock (_chartDataCacheLock)
@@ -745,32 +808,41 @@ namespace MQReceiver.Views
 
         private string ConvertToChartJson(ChartData data)
         {
-            // KD数据与日K线对齐，直接转换；不缩减根数，传完整 K 线/成交量
-#if DEBUG
-            Console.WriteLine($"[WebChart调试] 股票: {data.StockCode} 日K线: {data.DailyKline?.Count ?? 0} 周KD: {data.WeeklyKD?.Count ?? 0}");
-#endif
-            var weeklyK = ConvertKDData(data.WeeklyKD, true);
-            var weeklyD = ConvertKDData(data.WeeklyKD, false);
-            var monthlyK = ConvertKDData(data.MonthlyKD, true);
-            var monthlyD = ConvertKDData(data.MonthlyKD, false);
-            var quarterlyK = ConvertKDData(data.QuarterlyKD, true);
-            var quarterlyD = ConvertKDData(data.QuarterlyKD, false);
+            // 性能优化：并行转换KD数据
+            var weeklyKTask = Task.Run(() => ConvertKDData(data.WeeklyKD, true));
+            var weeklyDTask = Task.Run(() => ConvertKDData(data.WeeklyKD, false));
+            var monthlyKTask = Task.Run(() => ConvertKDData(data.MonthlyKD, true));
+            var monthlyDTask = Task.Run(() => ConvertKDData(data.MonthlyKD, false));
+            var quarterlyKTask = Task.Run(() => ConvertKDData(data.QuarterlyKD, true));
+            var quarterlyDTask = Task.Run(() => ConvertKDData(data.QuarterlyKD, false));
+            
+            // 并行转换K线和成交量数据
+            var candlesTask = Task.Run(() => ConvertCandleData(data.DailyKline));
+            var volumesTask = Task.Run(() => ConvertVolumeData(data.DailyKline));
+            
+            // 等待所有转换完成
+            Task.WaitAll(weeklyKTask, weeklyDTask, monthlyKTask, monthlyDTask, quarterlyKTask, quarterlyDTask, candlesTask, volumesTask);
 
             var chartData = new
             {
                 stockName = data.StockName,
                 stockCode = data.StockCode,
-                candles = ConvertCandleData(data.DailyKline),
-                volumes = ConvertVolumeData(data.DailyKline),
-                weeklyK = weeklyK,
-                weeklyD = weeklyD,
-                monthlyK = monthlyK,
-                monthlyD = monthlyD,
-                quarterlyK = quarterlyK,
-                quarterlyD = quarterlyD,
+                candles = candlesTask.Result,
+                volumes = volumesTask.Result,
+                weeklyK = weeklyKTask.Result,
+                weeklyD = weeklyDTask.Result,
+                monthlyK = monthlyKTask.Result,
+                monthlyD = monthlyDTask.Result,
+                quarterlyK = quarterlyKTask.Result,
+                quarterlyD = quarterlyDTask.Result,
             };
 
-            return JsonConvert.SerializeObject(chartData);
+            // 使用更快的序列化设置
+            return JsonConvert.SerializeObject(chartData, new JsonSerializerSettings
+            {
+                Formatting = Formatting.None, // 不格式化，减少字符串大小
+                NullValueHandling = NullValueHandling.Ignore // 忽略null值
+            });
         }
 
         private object[] ConvertCandleData(System.Collections.Generic.IList<CandleDataPoint> candles)
