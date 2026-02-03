@@ -23,6 +23,7 @@ namespace MQReceiver.Views
         private bool _isWebViewInitialized = false;
         private string _stockCode;
         private RealTimeDataCache _realTimeCache;
+        private ChartDataService _chartDataService; // 独立的图表数据服务（可选，提升性能）
         private DispatcherTimer _saveBoundsDebounce;
         private DispatcherTimer _resizeDebounce;  // 窗口尺寸变化时防抖，减轻拖动卡顿
         private EventHandler _onLeftOrTopChangedHandler;
@@ -44,6 +45,11 @@ namespace MQReceiver.Views
             ApplyInitialPlacement();
             _stockCode = stockCode;
             _realTimeCache = realTimeCache;
+            // 创建独立的图表数据服务（带缓存，提升性能）
+            if (realTimeCache != null)
+            {
+                _chartDataService = new ChartDataService(realTimeCache);
+            }
             this.Owner = null;
             this.Title = $"加载中... - {stockCode}";
             InitializeBoundsPersistence();
@@ -278,6 +284,80 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
+        /// 更新窗口显示的股票代码（用于复用窗口，只更新内容）
+        /// </summary>
+        public async Task UpdateStockCodeAsync(string newStockCode)
+        {
+            if (string.IsNullOrEmpty(newStockCode))
+                return;
+            
+            // 检查窗口是否已关闭或正在关闭
+            if (!this.IsLoaded || this.IsClosing)
+                return;
+            
+            try
+            {
+                _stockCode = newStockCode;
+                this.Title = $"加载中... - {newStockCode}";
+                
+                // 清空当前数据
+                _chartData = null;
+                
+                // 如果WebView还未初始化，等待初始化完成
+                if (!_isWebViewInitialized)
+                {
+                    await InitializeWebView();
+                }
+                
+                // 再次检查窗口状态（初始化可能耗时）
+                if (!this.IsLoaded || this.IsClosing)
+                    return;
+                
+                // 检查 WebView 是否可用
+                if (webView == null || webView.CoreWebView2 == null)
+                {
+                    Console.WriteLine("[WebChartWindow] WebView 不可用，重新初始化");
+                    await InitializeWebView();
+                    if (webView == null || webView.CoreWebView2 == null)
+                    {
+                        Console.WriteLine("[WebChartWindow] WebView 初始化失败");
+                        return;
+                    }
+                }
+                
+                // 重新加载新股票的数据
+                await LoadChartDataAsync(newStockCode);
+                
+                // 再次检查窗口状态（数据加载可能耗时）
+                if (!this.IsLoaded || this.IsClosing || _chartData == null)
+                    return;
+                
+                // 如果数据加载成功，更新图表显示
+                if (_chartData != null && _isWebViewInitialized && webView?.CoreWebView2 != null)
+                {
+                    var task = Dispatcher.InvokeAsync(async () =>
+                    {
+                        if (this.IsLoaded && !this.IsClosing && webView?.CoreWebView2 != null)
+                        {
+                            await SetChartData();
+                        }
+                    }, DispatcherPriority.Background);
+                    await task;
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                Console.WriteLine("[WebChartWindow] 对象已释放，无法更新股票代码");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WebChartWindow] 更新股票代码失败: {ex.Message}");
+            }
+        }
+        
+        private bool IsClosing { get; set; } = false;
+
+        /// <summary>
         /// 异步加载图表数据（不阻塞UI线程）；盘中同股票短时间复用缓存，减轻卡顿。
         /// </summary>
         private async Task LoadChartDataAsync(string stockCode)
@@ -294,28 +374,37 @@ namespace MQReceiver.Views
                         return;
                     }
                 }
-                // 若 ChartService 的静态 ChartData 缓存命中，LoadChartData 会直接返回，此处不再重复计算
-
+                // 使用独立的图表数据服务（已优化，带缓存）
                 Console.WriteLine($"[图表数据加载] 开始异步加载股票: {stockCode}");
                 
-                // 在后台线程加载数据
-                await Task.Run(() =>
+                // 优先使用独立的数据服务（带缓存和预加载优化）
+                if (_chartDataService != null)
                 {
-                    var chartService = new ChartService(_realTimeCache);
-                    _chartData = chartService.LoadChartData(stockCode, 0); // 0表示加载所有历史数据
-                    if (_chartData == null) return;
-                    // 预运算：在后台一次性序列化为图表 JSON 并写入缓存，后续 SetChartData 直接复用
-                    string chartJson = ConvertToChartJson(_chartData);
-                    lock (_chartDataCacheLock)
+                    _chartData = await _chartDataService.LoadChartDataAsync(stockCode);
+                }
+                else
+                {
+                    // 回退：直接使用 ChartService（如果没有数据服务）
+                    await Task.Run(() =>
                     {
-                        _chartDataCache[stockCode] = (_chartData, DateTime.Now, chartJson);
-                        if (_chartDataCache.Count > 50)
-                        {
-                            var expired = _chartDataCache.Where(kv => (DateTime.Now - kv.Value.cachedAt).TotalSeconds > ttlSec * 2).Select(kv => kv.Key).ToList();
-                            foreach (var k in expired) _chartDataCache.Remove(k);
-                        }
+                        var chartService = new ChartService(_realTimeCache);
+                        _chartData = chartService.LoadChartData(stockCode, 0);
+                    });
+                }
+                
+                if (_chartData == null) return;
+                
+                // 预运算：在后台一次性序列化为图表 JSON 并写入缓存，后续 SetChartData 直接复用
+                string chartJson = ConvertToChartJson(_chartData);
+                lock (_chartDataCacheLock)
+                {
+                    _chartDataCache[stockCode] = (_chartData, DateTime.Now, chartJson);
+                    if (_chartDataCache.Count > 50)
+                    {
+                        var expired = _chartDataCache.Where(kv => (DateTime.Now - kv.Value.cachedAt).TotalSeconds > ttlSec * 2).Select(kv => kv.Key).ToList();
+                        foreach (var k in expired) _chartDataCache.Remove(k);
                     }
-                });
+                }
 
                 // 回到UI线程更新界面
                 if (_chartData == null)
@@ -547,6 +636,13 @@ namespace MQReceiver.Views
             Console.WriteLine($"───────────────────────────────────────────────────────");
             Console.WriteLine($"[设置图表数据] 开始设置图表数据");
             
+            // 检查窗口状态
+            if (IsClosing || !this.IsLoaded)
+            {
+                Console.WriteLine($"[设置图表数据] ❌ 窗口已关闭或正在关闭");
+                return;
+            }
+            
             if (!_isWebViewInitialized)
             {
                 Console.WriteLine($"[设置图表数据] ❌ WebView未初始化");
@@ -556,6 +652,13 @@ namespace MQReceiver.Views
             if (_chartData == null)
             {
                 Console.WriteLine($"[设置图表数据] ❌ 图表数据为null");
+                return;
+            }
+            
+            // 检查 WebView 是否可用
+            if (webView == null || webView.CoreWebView2 == null)
+            {
+                Console.WriteLine($"[设置图表数据] ❌ WebView不可用");
                 return;
             }
 
@@ -594,17 +697,42 @@ namespace MQReceiver.Views
                 }
                 string script = $"setAllData({chartJson});";
                 
-                var result = await webView.ExecuteScriptAsync(script);
-                
-                if (result != null && result.Contains("success"))
+                // 再次检查窗口状态和 WebView 可用性
+                if (IsClosing || !this.IsLoaded || webView == null || webView.CoreWebView2 == null)
                 {
-                    Console.WriteLine($"[设置图表数据] ✅✅✅ 图表数据设置成功！");
-                }
-                else if (result != null && result.Contains("error"))
-                {
-                    Console.WriteLine($"[设置图表数据] ⚠️ JavaScript返回错误: {result}");
+                    Console.WriteLine($"[设置图表数据] ❌ 执行脚本前检查失败：窗口状态异常或WebView不可用");
+                    return;
                 }
                 
+                try
+                {
+                    var result = await webView.ExecuteScriptAsync(script);
+                    
+                    if (result != null && result.Contains("success"))
+                    {
+                        Console.WriteLine($"[设置图表数据] ✅✅✅ 图表数据设置成功！");
+                    }
+                    else if (result != null && result.Contains("error"))
+                    {
+                        Console.WriteLine($"[设置图表数据] ⚠️ JavaScript返回错误: {result}");
+                    }
+                    
+                    Console.WriteLine($"───────────────────────────────────────────────────────");
+                }
+                catch (ObjectDisposedException)
+                {
+                    Console.WriteLine($"[设置图表数据] ❌ WebView对象已释放，无法设置数据");
+                    Console.WriteLine($"───────────────────────────────────────────────────────");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[设置图表数据] ❌ 执行脚本失败: {ex.Message}");
+                    Console.WriteLine($"───────────────────────────────────────────────────────");
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                Console.WriteLine($"[设置图表数据] ❌ WebView对象已释放");
                 Console.WriteLine($"───────────────────────────────────────────────────────");
             }
             catch (Exception ex)
@@ -705,6 +833,7 @@ namespace MQReceiver.Views
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            IsClosing = true;
             _saveBoundsDebounce?.Stop();
             try
             {
@@ -714,7 +843,13 @@ namespace MQReceiver.Views
             catch { }
             SaveWindowBoundsToConfig();
             if (webView != null)
-                webView.Dispose();
+            {
+                try
+                {
+                    webView.Dispose();
+                }
+                catch { }
+            }
         }
 
         private void Window_SizeChanged(object sender, SizeChangedEventArgs e)

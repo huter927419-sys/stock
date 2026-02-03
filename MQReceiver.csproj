@@ -197,6 +197,7 @@
     <!-- src/Core/Configuration -->
     <Compile Include="src\Core\Configuration\IConfigurationProvider.cs" />
     <Compile Include="src\Core\Configuration\AppConfigProvider.cs" />
+    <Compile Include="src\Core\Configuration\HaiLiDrvConfigProvider.cs" />
     <Compile Include="src\Configuration\StorageConfiguration.cs" />
     <!-- src/Core/Helpers -->
     <Compile Include="src\Core\Helpers\JsonParserHelper.cs" />
@@ -323,8 +324,15 @@
     <Compile Include="src\UI\Events\FilterResultEventArgs.cs" />
     <!-- src/UI/Services -->
     <Compile Include="src\UI\ChartService.cs" />
+    <Compile Include="src\UI\Services\ChartWindowManager.cs" />
+    <Compile Include="src\UI\Services\ChartDataService.cs" />
+    <Compile Include="src\UI\Services\HaiLiDrvDataService.cs" />
+    <!-- src/UI/Converters -->
+    <Compile Include="src\UI\Converters\PriceChangeConverter.cs" />
     <!-- src/UI/Helpers -->
     <Compile Include="src\UI\Helpers\WindowHelper.cs" />
+    <Compile Include="src\UI\Helpers\ConfigurationHelper.cs" />
+    <Compile Include="src\UI\Helpers\CacheManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

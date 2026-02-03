@@ -1,10 +1,22 @@
 <Window x:Class="MQReceiver.Views.HaiLiDrvWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:converters="clr-namespace:MQReceiver.Converters"
         Title="海利驱动数据窗口" Height="800" Width="1200"
+        MinWidth="800" MaxWidth="1200"
         WindowStartupLocation="Manual"
         Background="#1E1E1E"
-        ResizeMode="CanResize">
+        ResizeMode="CanResize"
+        StateChanged="Window_StateChanged">
+    <Window.Resources>
+        <converters:GreaterThanZeroConverter x:Key="GreaterThanZeroConverter"/>
+        <converters:LessThanZeroConverter x:Key="LessThanZeroConverter"/>
+        <Style x:Key="DataGridTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#D4D4D4"/>
+            <Setter Property="Margin" Value="5,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -39,8 +51,9 @@
             <StackPanel Orientation="Horizontal">
                 <Button Name="RefreshButton" Content="刷新数据" Width="100" Height="30" Margin="5,0" 
                         Click="RefreshButton_Click" Background="#007ACC" Foreground="White" BorderThickness="0"/>
-                <Button Name="ConfigStockCodesButton" Content="配置股票代码" Width="120" Height="30" Margin="10,0,0,0"
-                        Click="ConfigStockCodesButton_Click" Background="#5A5A5A" Foreground="#D4D4D4" BorderThickness="0"/>
+                <!-- 配置股票代码按钮已隐藏（不需要全局过滤，使用Boards.json配置面板） -->
+                <!-- <Button Name="ConfigStockCodesButton" Content="配置股票代码" Width="120" Height="30" Margin="10,0,0,0"
+                        Click="ConfigStockCodesButton_Click" Background="#5A5A5A" Foreground="#D4D4D4" BorderThickness="0"/> -->
                 <TextBlock Text="搜索:" Margin="20,0,5,0" VerticalAlignment="Center" 
                            Foreground="#B8B8B8" FontSize="12"/>
                 <TextBox Name="SearchTextBox" Width="200" Height="28" Margin="5,0,0,0"
@@ -84,23 +97,10 @@
             </Grid.RowDefinitions>
             <Border x:Name="DataPanelBorder" Grid.Row="0" Visibility="Visible">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <DataGrid x:Name="MainDataGrid" MinHeight="180" MaxHeight="350"
-                                  AutoGenerateColumns="False" IsReadOnly="True"
-                                  Background="#1E1E1E" Foreground="#D4D4D4"
-                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column"
-                                  CanUserResizeColumns="True" SelectionMode="Single">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="代码" Binding="{Binding StockCode}" Width="70"/>
-                                <DataGridTextColumn Header="名称" Binding="{Binding StockName}" Width="80"/>
-                                <DataGridTextColumn Header="最新价" Binding="{Binding NewPrice, StringFormat=F2}" Width="60"/>
-                                <DataGridTextColumn Header="涨跌幅" Binding="{Binding PriceChange, StringFormat=F2}" Width="60"/>
-                                <DataGridTextColumn Header="成交量" Binding="{Binding Volume, StringFormat=N0}" Width="80"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                        <WrapPanel x:Name="PanelsContainer" Orientation="Horizontal"
-                                   HorizontalAlignment="Left" Margin="0,8,0,0"/>
-                    </StackPanel>
+                    <WrapPanel x:Name="PanelsContainer" Orientation="Horizontal"
+                               HorizontalAlignment="Left" 
+                               VerticalAlignment="Top"
+                               Margin="5,8,5,5"/>
                 </ScrollViewer>
             </Border>
             <GridSplitter Grid.Row="1" Height="8" HorizontalAlignment="Stretch" Background="#3F3F46"/>
@@ -128,12 +128,4 @@
             <TextBlock Name="InfoText" Text="等待数据..." Foreground="#B8B8B8" FontSize="11"/>
         </Border>
     </Grid>
-
-    <Window.Resources>
-        <Style x:Key="DataGridTextStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#D4D4D4"/>
-            <Setter Property="Margin" Value="5,0"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
-    </Window.Resources>
 </Window>

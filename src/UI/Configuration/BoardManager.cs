@@ -49,17 +49,27 @@ namespace MQReceiver.UI.Configuration
             try
             {
                 string filePath = ConfigFilePath;
+                Console.WriteLine($"[BoardManager] 尝试加载配置文件: {filePath}");
                 if (!File.Exists(filePath))
+                {
+                    Console.WriteLine($"[BoardManager] 配置文件不存在: {filePath}");
                     return new List<BoardConfig>();
+                }
 
                 string json = File.ReadAllText(filePath, Encoding.UTF8);
                 var list = JsonConvert.DeserializeObject<List<BoardConfig>>(json);
                 _boards = list ?? new List<BoardConfig>();
+                Console.WriteLine($"[BoardManager] 成功加载 {_boards.Count} 个板块配置");
+                if (_boards.Count > 0)
+                {
+                    Console.WriteLine($"[BoardManager] 第一个板块: {_boards[0].Name}, 包含 {_boards[0].StockCodes?.Count ?? 0} 个股票代码");
+                }
                 return new List<BoardConfig>(_boards);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BoardManager] 加载失败: {ex.Message}");
+                Console.WriteLine($"[BoardManager] 加载失败: {ex.Message}");
+                Console.WriteLine($"[BoardManager] 异常堆栈: {ex.StackTrace}");
                 return new List<BoardConfig>();
             }
         }

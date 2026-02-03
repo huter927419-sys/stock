@@ -32,14 +32,52 @@ namespace MQReceiver.Services
         public HaiLiDrvDataService(RealTimeDataCache realTimeCache, IConfigurationProvider configProvider = null)
         {
             _realTimeCache = realTimeCache;
-            _repository = RepositoryFactory.GetStockDataRepository();
             _configProvider = configProvider ?? AppConfigProvider.Instance;
+            
+            // 确保使用 RocksDB 作为存储后端
+            EnsureRocksDBBackend();
+            
+            _repository = RepositoryFactory.GetStockDataRepository();
             
             // 根据配置提供者构建连接字符串（独立模式使用HaiLiDrvConfigProvider的数据库配置）
             _connectionString = BuildConnectionStringFromConfig(_configProvider);
             
             // 加载配置的股票代码
             LoadConfiguredStockCodes();
+        }
+        
+        /// <summary>
+        /// 确保使用 RocksDB 作为存储后端
+        /// </summary>
+        private void EnsureRocksDBBackend()
+        {
+            // 检查当前后端，如果不是 RocksDB，则配置为 RocksDB
+            var currentBackend = RepositoryFactory.GetCurrentBackend();
+            if (currentBackend != RepositoryFactory.StorageBackend.RocksDB && 
+                currentBackend != RepositoryFactory.StorageBackend.FileBased)
+            {
+                // 读取 RocksDB 路径配置
+                string dbPath = _configProvider.GetString("RocksDBPath", "data/rocksdb");
+                
+                // 解析路径（相对路径转为绝对路径）
+                if (!System.IO.Path.IsPathRooted(dbPath))
+                {
+                    string baseDir = System.AppDomain.CurrentDomain.BaseDirectory ?? ".";
+                    dbPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, dbPath));
+                }
+                
+                // 配置为 RocksDB
+                RepositoryFactory.Configure(
+                    RepositoryFactory.StorageBackend.RocksDB,
+                    dbPath: dbPath
+                );
+                
+                Console.WriteLine($"[HaiLiDrvDataService] 已配置使用 RocksDB 存储后端: {dbPath}");
+            }
+            else
+            {
+                Console.WriteLine($"[HaiLiDrvDataService] 当前存储后端: {currentBackend}");
+            }
         }
 
         /// <summary>
@@ -118,19 +156,47 @@ namespace MQReceiver.Services
         }
 
         /// <summary>
-        /// 获取所有股票数据（自动选择实时数据或日线数据）
+        /// 获取所有股票数据（盘中用实时数据，盘后用日线数据）
         /// </summary>
         public List<HaiLiDataItem> GetAllStockData(int maxCount = 500)
         {
-            if (IsTradingTime() && _realTimeCache != null && _realTimeCache.Count > 0)
+            bool isTradingTime = IsTradingTime();
+            int cacheCount = _realTimeCache?.Count ?? 0;
+            
+            Console.WriteLine($"[HaiLiDrvDataService] GetAllStockData: 交易时间={isTradingTime}, 缓存数量={cacheCount}, 启用过滤={_enableStockCodeFilter}, 配置代码数={_configuredStockCodes.Count}");
+            
+            // 盘中（交易时间）：使用实时数据
+            if (isTradingTime)
             {
-                // 交易时间：使用实时数据
-                return GetRealTimeData(maxCount);
+                if (_realTimeCache != null && cacheCount > 0)
+                {
+                    Console.WriteLine("[HaiLiDrvDataService] 盘中：使用实时数据源");
+                    var result = GetRealTimeData(maxCount);
+                    Console.WriteLine($"[HaiLiDrvDataService] 实时数据返回: {result.Count} 条");
+                    
+                    // 如果实时数据为空（可能被过滤掉了），回退到日线数据
+                    if (result.Count == 0)
+                    {
+                        Console.WriteLine("[HaiLiDrvDataService] 实时数据为空，回退到日线数据");
+                        return GetDailyData(maxCount);
+                    }
+                    
+                    return result;
+                }
+                else
+                {
+                    // 盘中但实时数据缓存为空，回退到日线数据
+                    Console.WriteLine("[HaiLiDrvDataService] 盘中但实时数据缓存为空，使用日线数据源");
+                    return GetDailyData(maxCount);
+                }
             }
             else
             {
-                // 收盘后：使用日线数据
-                return GetDailyData(maxCount);
+                // 盘后（非交易时间）：使用日线数据
+                Console.WriteLine("[HaiLiDrvDataService] 盘后：使用日线数据源");
+                var result = GetDailyData(maxCount);
+                Console.WriteLine($"[HaiLiDrvDataService] 日线数据返回: {result.Count} 条");
+                return result;
             }
         }
 
@@ -141,17 +207,58 @@ namespace MQReceiver.Services
         {
             try
             {
+                if (_realTimeCache == null)
+                {
+                    Console.WriteLine("[HaiLiDrvDataService] 错误：实时数据缓存为 null");
+                    return new List<HaiLiDataItem>();
+                }
+                
                 var allData = _realTimeCache.GetAllData();
+                Console.WriteLine($"[HaiLiDrvDataService] GetAllData 返回 {allData?.Count ?? 0} 条原始数据");
+                
+                if (allData == null || allData.Count == 0)
+                {
+                    Console.WriteLine("[HaiLiDrvDataService] 实时数据缓存为空，请确保MQ服务正在运行并接收数据");
+                    return new List<HaiLiDataItem>();
+                }
                 
                 // 清空并复用List，减少GC压力
                 _reusableItemList.Clear();
                 _reusableItemList.Capacity = Math.Max(_reusableItemList.Capacity, Math.Min(maxCount, allData.Count));
                 
+                int filteredCount = 0;
                 foreach (var record in allData)
                 {
                     // 应用股票代码过滤
                     if (!ShouldDisplayStock(record.StockCode))
+                    {
+                        filteredCount++;
                         continue;
+                    }
+                    
+                    // 获取昨收价：优先使用实时数据中的LastClose，如果无效则从日线数据获取
+                    decimal lastClose = record.LastClose;
+                    if (lastClose <= 0)
+                    {
+                        // 从日线数据获取前一日收盘价作为备用
+                        var prevClose = GetPreviousClosePrice(record.StockCode, DateTime.Today);
+                        if (prevClose.HasValue && prevClose.Value > 0)
+                        {
+                            lastClose = prevClose.Value;
+                        }
+                        else
+                        {
+                            // 如果还是找不到，使用当日开盘价（不理想，但比0好）
+                            lastClose = record.Open > 0 ? record.Open : record.NewPrice;
+                        }
+                    }
+                    
+                    // 计算涨跌幅
+                    double priceChange = 0;
+                    if (lastClose > 0 && record.NewPrice > 0)
+                    {
+                        priceChange = (double)((record.NewPrice - lastClose) / lastClose * 100);
+                    }
                     
                     _reusableItemList.Add(new HaiLiDataItem
                     {
@@ -159,14 +266,14 @@ namespace MQReceiver.Services
                         StockCode = record.StockCode,
                         StockName = record.StockName ?? record.StockCode,
                         NewPrice = (double)record.NewPrice,
-                        LastClose = (double)record.LastClose,
+                        LastClose = (double)lastClose,
                         Open = (double)record.Open,
-                        PriceChange = record.LastClose != 0
-                            ? (double)((record.NewPrice - record.LastClose) / record.LastClose * 100)
-                            : 0,
+                        PriceChange = priceChange,
                         Volume = (double)record.Volume,
                         Amount = (double)record.Amount
                     });
+                    
+                    // 减少日志输出，提升性能
                 }
                 
                 // 排序并限制数量
@@ -176,13 +283,28 @@ namespace MQReceiver.Services
                     _reusableItemList.RemoveRange(maxCount, _reusableItemList.Count - maxCount);
                 }
                 
+                Console.WriteLine($"[HaiLiDrvDataService] 实时数据：原始 {allData.Count} 条，过滤掉 {filteredCount} 条，排序前 {_reusableItemList.Count} 条");
+                
+                // 排序并限制数量（按涨跌幅降序排序，涨幅大的在前）
+                _reusableItemList.Sort((a, b) => b.PriceChange.CompareTo(a.PriceChange));
+                Console.WriteLine($"[HaiLiDrvDataService] 实时数据排序后（按涨跌幅），前10个股票代码: {string.Join(", ", _reusableItemList.Take(10).Select(d => $"{d.StockCode}({d.PriceChange:F2}%)"))}");
+                
+                if (_reusableItemList.Count > maxCount)
+                {
+                    Console.WriteLine($"[HaiLiDrvDataService] 实时数据：排序后有 {_reusableItemList.Count} 条，限制为 {maxCount} 条（按成交额排序）");
+                    _reusableItemList.RemoveRange(maxCount, _reusableItemList.Count - maxCount);
+                }
+                
                 if (_enableStockCodeFilter && _configuredStockCodes.Count > 0)
                 {
-                    Console.WriteLine($"[HaiLiDrvDataService] 实时数据：过滤后显示 {_reusableItemList.Count} 条（配置了 {_configuredStockCodes.Count} 个股票代码）");
+                    Console.WriteLine($"[HaiLiDrvDataService] 股票代码过滤已启用，配置了 {_configuredStockCodes.Count} 个股票代码");
                 }
                 
                 // 返回新列表（因为调用者可能会修改），但复用内部缓冲区
-                return new List<HaiLiDataItem>(_reusableItemList);
+                var result = new List<HaiLiDataItem>(_reusableItemList);
+                Console.WriteLine($"[HaiLiDrvDataService] 实时数据：最终返回 {result.Count} 条，包含的股票代码: {string.Join(", ", result.Take(20).Select(d => d.StockCode))}");
+                
+                return result;
             }
             catch (Exception ex)
             {
@@ -200,6 +322,7 @@ namespace MQReceiver.Services
             {
                 // 获取最新交易日
                 DateTime latestTradeDate = GetLatestTradeDate();
+                Console.WriteLine($"[HaiLiDrvDataService] 最新交易日: {latestTradeDate:yyyy-MM-dd}");
                 if (latestTradeDate == DateTime.MinValue)
                 {
                     Console.WriteLine("[HaiLiDrvDataService] 未找到交易日数据");
@@ -208,21 +331,36 @@ namespace MQReceiver.Services
 
                 // 从数据库获取最新交易日的所有股票数据
                 var dailyData = GetDailyDataByDate(latestTradeDate);
+                if (dailyData.Count == 0)
+                {
+                    return new List<HaiLiDataItem>();
+                }
+                
+                // 性能优化：批量获取前一日收盘价（一次性查询所有股票）
+                var stockCodes = dailyData.Select(d => d.StockCode).Distinct().ToList();
+                var prevCloseDict = BatchGetPreviousClosePrices(stockCodes, latestTradeDate);
                 
                 // 清空并复用List，减少GC压力
                 _reusableItemList.Clear();
                 _reusableItemList.Capacity = Math.Max(_reusableItemList.Capacity, Math.Min(maxCount, dailyData.Count));
                 
-                // 需要获取前一日收盘价来计算涨跌幅
+                // 批量处理数据
                 foreach (var record in dailyData)
                 {
                     // 应用股票代码过滤
                     if (!ShouldDisplayStock(record.StockCode))
                         continue;
                     
-                    // 获取前一日收盘价
-                    decimal? prevClose = GetPreviousClosePrice(record.StockCode, record.TradeDate);
-                    decimal lastClose = prevClose ?? record.OpenPrice;
+                    // 从批量查询结果获取前一日收盘价
+                    decimal? prevClose = prevCloseDict.TryGetValue(record.StockCode, out var prev) ? prev : null;
+                    decimal lastClose = prevClose ?? record.ClosePrice;
+                    
+                    // 计算涨跌幅：只有当有前一日收盘价时才计算，否则为0
+                    double priceChange = 0;
+                    if (prevClose.HasValue && prevClose.Value > 0)
+                    {
+                        priceChange = (double)((record.ClosePrice - prevClose.Value) / prevClose.Value * 100);
+                    }
                     
                     _reusableItemList.Add(new HaiLiDataItem
                     {
@@ -232,30 +370,22 @@ namespace MQReceiver.Services
                         NewPrice = (double)record.ClosePrice,
                         LastClose = (double)lastClose,
                         Open = (double)record.OpenPrice,
-                        PriceChange = lastClose != 0 
-                            ? (double)((record.ClosePrice - lastClose) / lastClose * 100)
-                            : 0,
+                        PriceChange = priceChange,
                         Volume = (double)record.Volume,
                         Amount = (double)record.Amount
                     });
                 }
                 
-                // 排序并限制数量
-                _reusableItemList.Sort((a, b) => b.Amount.CompareTo(a.Amount));
+                // 排序并限制数量（按涨跌幅降序排序，涨幅大的在前）
+                _reusableItemList.Sort((a, b) => b.PriceChange.CompareTo(a.PriceChange));
+                
                 if (_reusableItemList.Count > maxCount)
                 {
                     _reusableItemList.RemoveRange(maxCount, _reusableItemList.Count - maxCount);
                 }
                 
                 // 返回新列表（因为调用者可能会修改），但复用内部缓冲区
-                var result = new List<HaiLiDataItem>(_reusableItemList);
-                
-                if (_enableStockCodeFilter && _configuredStockCodes.Count > 0)
-                {
-                    Console.WriteLine($"[HaiLiDrvDataService] 日线数据：过滤后显示 {result.Count} 条（配置了 {_configuredStockCodes.Count} 个股票代码）");
-                }
-                
-                return result;
+                return new List<HaiLiDataItem>(_reusableItemList);
             }
             catch (Exception ex)
             {
@@ -276,31 +406,56 @@ namespace MQReceiver.Services
             try
             {
                 var codes = _repository.GetAllStockCodes();
-                if (codes == null || codes.Count == 0) return new List<Models.DailyDataRecord>(_reusableDailyDataList);
-                var day = tradeDate.Date;
-                foreach (var stockCode in codes)
+                if (codes == null || codes.Count == 0)
                 {
-                    var list = _repository.GetDailyData(stockCode, day, day);
-                    if (list == null || list.Count == 0) continue;
-                    foreach (var k in list)
-                    {
-                        _reusableDailyDataList.Add(new Models.DailyDataRecord
-                        {
-                            StockCode = stockCode,
-                            TradeDate = k.TradeDate,
-                            OpenPrice = k.Open,
-                            HighPrice = k.High,
-                            LowPrice = k.Low,
-                            ClosePrice = k.Close,
-                            Volume = k.Volume,
-                            Amount = k.Amount ?? 0m,
-                            MarketCode = 0,
-                            TradeDateTime = k.TradeDate,
-                            TimeStamp = 0
-                        });
-                    }
+                    return new List<Models.DailyDataRecord>(_reusableDailyDataList);
                 }
-                _reusableDailyDataList.Sort((a, b) => (b.Amount ?? 0m).CompareTo(a.Amount ?? 0m));
+                
+                var day = tradeDate.Date;
+                int processedCount = 0;
+                var lockObj = new object();
+                
+                // 性能优化：并行查询所有股票的数据
+                System.Threading.Tasks.Parallel.ForEach(codes, new System.Threading.Tasks.ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) // 限制并行度
+                }, stockCode =>
+                {
+                    try
+                    {
+                        var list = _repository.GetDailyData(stockCode, day, day);
+                        if (list == null || list.Count == 0) return;
+                        
+                        lock (lockObj)
+                        {
+                            processedCount++;
+                            foreach (var k in list)
+                            {
+                                _reusableDailyDataList.Add(new Models.DailyDataRecord
+                                {
+                                    StockCode = stockCode,
+                                    TradeDate = k.TradeDate,
+                                    OpenPrice = k.Open,
+                                    HighPrice = k.High,
+                                    LowPrice = k.Low,
+                                    ClosePrice = k.Close,
+                                    Volume = k.Volume,
+                                    Amount = k.Amount ?? 0m,
+                                    MarketCode = 0,
+                                    TradeDateTime = k.TradeDate,
+                                    TimeStamp = 0
+                                });
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 忽略单个股票查询失败
+                    }
+                });
+                
+                // 按成交额排序
+                _reusableDailyDataList.Sort((a, b) => b.Amount.CompareTo(a.Amount));
             }
             catch (Exception ex)
             {
@@ -317,17 +472,77 @@ namespace MQReceiver.Services
             try
             {
                 var dt = _repository.GetLatestTradeDate();
+                if (dt == null)
+                {
+                    Console.WriteLine("[HaiLiDrvDataService] GetLatestTradeDate 返回 null");
+                }
+                else
+                {
+                    Console.WriteLine($"[HaiLiDrvDataService] GetLatestTradeDate 返回: {dt.Value:yyyy-MM-dd}");
+                }
                 return dt?.Date ?? DateTime.MinValue;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[HaiLiDrvDataService] 获取最新交易日失败: {ex.Message}");
+                Console.WriteLine($"[HaiLiDrvDataService] 异常堆栈: {ex.StackTrace}");
             }
             return DateTime.MinValue;
         }
 
         /// <summary>
+        /// 批量获取前一日收盘价（性能优化：一次性查询所有股票）
+        /// </summary>
+        private Dictionary<string, decimal?> BatchGetPreviousClosePrices(List<string> stockCodes, DateTime currentDate)
+        {
+            var result = new Dictionary<string, decimal?>();
+            if (stockCodes == null || stockCodes.Count == 0)
+                return result;
+            
+            try
+            {
+                var prevDate = currentDate.AddDays(-1);
+                var startDate = currentDate.AddMonths(-3);
+                
+                // 性能优化：使用并行查询，但限制并行度避免过多连接
+                var lockObj = new object();
+                System.Threading.Tasks.Parallel.ForEach(stockCodes, new System.Threading.Tasks.ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8) // 限制并行度
+                }, stockCode =>
+                {
+                    try
+                    {
+                        var data = _repository.GetDailyData(stockCode, startDate, prevDate);
+                        if (data != null && data.Count > 0)
+                        {
+                            var last = data.OrderByDescending(d => d.TradeDate).FirstOrDefault();
+                            if (last != null)
+                            {
+                                lock (lockObj)
+                                {
+                                    result[stockCode] = last.Close;
+                                }
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 忽略单个股票查询失败
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[HaiLiDrvDataService] 批量获取前一日收盘价失败: {ex.Message}");
+            }
+            
+            return result;
+        }
+
+        /// <summary>
         /// 获取前一日收盘价（使用当前配置的存储后端）
+        /// 注意：已优化为批量查询，此方法保留用于兼容性
         /// </summary>
         private decimal? GetPreviousClosePrice(string stockCode, DateTime currentDate)
         {
@@ -337,9 +552,9 @@ namespace MQReceiver.Services
                 var last = data?.OrderByDescending(d => d.TradeDate).FirstOrDefault();
                 return last?.Close;
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"[HaiLiDrvDataService] 获取前一日收盘价失败 {stockCode}: {ex.Message}");
+                // 减少日志输出，避免性能影响
             }
             return null;
         }

@@ -33,6 +33,7 @@ namespace MQReceiver.Views
         private List<HaiLiDrvPanel> _panels = new List<HaiLiDrvPanel>(); // 面板列表
         private HaiLiDrvFilterSettings _globalFilterSettings = new HaiLiDrvFilterSettings(); // 全局筛选（与 Mairui 一致）
         private bool _isReceivingData = true; // 是否正在接收（启动/停止接收）
+        private bool _isRefreshing = false; // 是否正在刷新（防止重叠刷新）
 
         /// <summary>
         /// 构造函数（集成模式：从主窗口调用）
@@ -141,9 +142,16 @@ namespace MQReceiver.Views
                     {
                         var panel = new HaiLiDrvPanel();
                         panel.PanelName = board.Name ?? "未命名板块";
-                        panel.SetStockCodes(board.StockCodes ?? new List<string>());
+                        var stockCodes = board.StockCodes ?? new List<string>();
+                        panel.SetStockCodes(stockCodes);
+                        Console.WriteLine($"[HaiLiDrvWindow] 板块 \"{board.Name}\": 配置了 {stockCodes.Count} 个股票代码");
+                        // 设置面板大小（流式布局：面板会根据内容自动排列）
+                        // 注意：不要设置为 double.NaN，WrapPanel 需要明确的宽度和高度才能正确换行
                         panel.Width = board.Width > 0 ? board.Width : 400;
                         panel.Height = board.Height > 0 ? board.Height : 300;
+                        // 确保面板不会拉伸填充整个空间
+                        panel.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+                        panel.VerticalAlignment = System.Windows.VerticalAlignment.Top;
                         panel.StockDoubleClick += Panel_StockDoubleClick;
                         PanelsContainer.Children.Add(panel);
                         _panels.Add(panel);
@@ -173,6 +181,9 @@ namespace MQReceiver.Views
                         }
                         panel.Width = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Width", 400);
                         panel.Height = _configProvider.GetInt($"HaiLiDrv_Panel{i + 1}_Height", 300);
+                        // 确保面板不会拉伸填充整个空间
+                        panel.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+                        panel.VerticalAlignment = System.Windows.VerticalAlignment.Top;
                         PanelsContainer.Children.Add(panel);
                         _panels.Add(panel);
                     }
@@ -193,6 +204,7 @@ namespace MQReceiver.Views
         {
             _chartWindowManager.OpenChartWindow(stockCode);
         }
+
 
         /// <summary>
         /// 设置窗口在附加屏（第二个屏幕）上显示
@@ -223,10 +235,12 @@ namespace MQReceiver.Views
                             this.WindowStartupLocation = WindowStartupLocation.Manual;
                             this.Left = left;
                             this.Top = top;
-                            this.Width = width;
+                            // 限制宽度为固定值，确保流式布局生效
+                            this.Width = Math.Min(width, 1200);
                             this.Height = height;
-                            this.WindowState = WindowState.Maximized;
-                            Console.WriteLine($"[HaiLiDrvWindow] 从配置文件恢复窗口位置: ({left}, {top}, {width}, {height})");
+                            // 不最大化，保持固定大小
+                            this.WindowState = WindowState.Normal;
+                            Console.WriteLine($"[HaiLiDrvWindow] 从配置文件恢复窗口位置: ({left}, {top}, {this.Width}, {height})");
                             return;
                         }
                     }
@@ -241,13 +255,14 @@ namespace MQReceiver.Views
                     var bounds = secondaryScreen.Bounds;
                     
                     this.WindowStartupLocation = WindowStartupLocation.Manual;
-                    this.Left = bounds.Left;
-                    this.Top = bounds.Top;
-                    this.Width = bounds.Width;
+                    // 固定宽度，居中显示
+                    this.Width = 1200;
                     this.Height = bounds.Height;
-                    this.WindowState = WindowState.Maximized;
+                    this.Left = bounds.Left + (bounds.Width - this.Width) / 2;
+                    this.Top = bounds.Top;
+                    this.WindowState = WindowState.Normal;
                     
-                    Console.WriteLine($"[HaiLiDrvWindow] 窗口已设置到附加屏: {bounds}");
+                    Console.WriteLine($"[HaiLiDrvWindow] 窗口已设置到附加屏: 宽度固定为{this.Width}");
                 }
                 else
                 {
@@ -256,17 +271,40 @@ namespace MQReceiver.Views
                     var bounds = primaryScreen.Bounds;
                     
                     this.WindowStartupLocation = WindowStartupLocation.Manual;
-                    this.Left = bounds.Left + bounds.Width / 4;
-                    this.Top = bounds.Top + bounds.Height / 4;
-                    this.Width = bounds.Width / 2;
+                    // 固定宽度，居中显示
+                    this.Width = 1200;
                     this.Height = bounds.Height / 2;
+                    this.Left = bounds.Left + (bounds.Width - this.Width) / 2;
+                    this.Top = bounds.Top + bounds.Height / 4;
                     
-                    Console.WriteLine($"[HaiLiDrvWindow] 只有一个屏幕，窗口设置在主屏: {bounds}");
+                    Console.WriteLine($"[HaiLiDrvWindow] 只有一个屏幕，窗口设置在主屏: 宽度固定为{this.Width}");
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[HaiLiDrvWindow] 设置屏幕位置失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 窗口状态变化事件处理（确保最大化时保持固定宽度）
+        /// </summary>
+        private void Window_StateChanged(object sender, EventArgs e)
+        {
+            if (this.WindowState == WindowState.Maximized)
+            {
+                // 最大化时恢复为普通状态，保持固定宽度
+                this.WindowState = WindowState.Normal;
+                // 设置窗口为屏幕高度，但保持固定宽度
+                var screen = Screen.FromPoint(new System.Drawing.Point((int)(this.Left + this.Width / 2), (int)(this.Top + this.Height / 2)));
+                if (screen != null)
+                {
+                    this.Height = screen.WorkingArea.Height;
+                    this.Top = screen.WorkingArea.Top;
+                    // 保持宽度为1200，居中显示
+                    this.Left = screen.WorkingArea.Left + (screen.WorkingArea.Width - 1200) / 2;
+                    this.Width = 1200;
+                }
             }
         }
 
@@ -305,69 +343,134 @@ namespace MQReceiver.Views
         }
 
         /// <summary>
-        /// 刷新数据（自动选择实时数据或日线数据）
+        /// 刷新数据（自动选择实时数据或日线数据）- 异步执行，避免阻塞UI线程
         /// </summary>
         private void RefreshData()
         {
-            try
+            // 防止重叠刷新
+            if (_isRefreshing)
+                return;
+            
+            _isRefreshing = true;
+            
+            // 在后台线程执行数据获取，避免阻塞UI线程
+            System.Threading.Tasks.Task.Run(() =>
             {
-                // 从配置读取最大显示条数
-                int maxDisplayCount = _configProvider.GetInt("HaiLiDrv_MaxDisplayCount", 500);
-
-                // 使用数据服务获取数据（自动判断是实时数据还是日线数据）
-                var items = _dataService.GetAllStockData(maxDisplayCount);
-
-                // 应用全局筛选（涨幅/日内涨幅，与 Mairui 一致）
-                var afterFilter = ApplyGlobalFilterToList(items);
-
-                // 更新UI（在UI线程）
-                Dispatcher.Invoke(() =>
+                try
                 {
-                    // 保存所有数据（已应用全局筛选）- 复用List
-                    _allDataItems.Clear();
-                    _allDataItems.Capacity = Math.Max(_allDataItems.Capacity, afterFilter.Count);
-                    _allDataItems.AddRange(afterFilter);
-                    
-                    // 应用搜索过滤（如果有搜索条件）- 复用List
-                    List<Services.HaiLiDataItem> filteredData;
-                    if (!string.IsNullOrWhiteSpace(_currentSearchText))
-                    {
-                        filteredData = ApplySearchFilterToList(_allDataItems, _currentSearchText);
-                    }
-                    else
-                    {
-                        filteredData = _allDataItems;
-                    }
-                    
-                    // 更新主数据表格（与 Mairui 数据面板一致）
-                    if (MainDataGrid != null)
-                        MainDataGrid.ItemsSource = filteredData;
-
-                    // 更新所有板块面板
+                    // 从配置读取最大显示条数
+                    // 为了确保面板能显示数据，需要返回足够多的数据（至少包含所有面板配置的股票）
+                    // 计算所有面板配置的股票代码总数
+                    int totalPanelCodes = 0;
                     foreach (var panel in _panels)
                     {
-                        panel.UpdateData(filteredData);
+                        var codes = panel.GetStockCodes();
+                        if (codes != null) totalPanelCodes += codes.Count;
                     }
-                    
-                    string dataSource = _dataService.IsTradingTime() ? "实时数据" : "日线数据";
-                    string filterInfo = GetFilterInfo();
-                    int totalCount = _allDataItems.Count;
-                    int displayCount = filteredData.Count;
-                    string searchInfo = string.IsNullOrEmpty(_currentSearchText) ? "" : $" | 搜索: {displayCount}/{totalCount}";
-                    string panelInfo = $" | 面板: {_panels.Count}";
-                    StatusText.Text = $"已加载 {totalCount} 条数据 ({dataSource}){filterInfo}{searchInfo}{panelInfo}";
-                    InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 共 {displayCount} 条记录 | 数据源: {dataSource}{filterInfo}{searchInfo}{panelInfo}";
-                    AppendLog($"[{DateTime.Now:HH:mm:ss}] 已加载 {displayCount} 条 ({dataSource})");
-                });
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[HaiLiDrvWindow] 刷新数据失败: {ex.Message}");
-                Dispatcher.Invoke(() =>
+                    // 至少返回面板配置代码数的2倍，或者默认5000条，确保面板能匹配到数据
+                    int minRequired = Math.Max(totalPanelCodes * 2, 5000);
+                    int maxDisplayCount = Math.Max(_configProvider.GetInt("HaiLiDrv_MaxDisplayCount", 500), minRequired);
+                    Console.WriteLine($"[HaiLiDrvWindow] 面板共配置 {totalPanelCodes} 个股票代码，设置最大显示条数为 {maxDisplayCount}");
+
+                    // 使用数据服务获取数据（自动判断是实时数据还是日线数据）
+                    // 这个操作可能涉及数据库查询，在后台线程执行
+                    var items = _dataService.GetAllStockData(maxDisplayCount);
+                    Console.WriteLine($"[HaiLiDrvWindow] 数据服务返回 {items.Count} 条数据");
+                    if (items.Count > 0)
+                    {
+                        Console.WriteLine($"[HaiLiDrvWindow] 数据示例（前3条）:");
+                        for (int i = 0; i < Math.Min(3, items.Count); i++)
+                        {
+                            var item = items[i];
+                            Console.WriteLine($"  [{i}] 代码={item.StockCode}, 名称={item.StockName}, 最新价={item.NewPrice}, 涨跌幅={item.PriceChange:F2}%");
+                        }
+                    }
+
+                    // 应用全局筛选（涨幅/日内涨幅，与 Mairui 一致）
+                    var afterFilter = ApplyGlobalFilterToList(items);
+                    Console.WriteLine($"[HaiLiDrvWindow] 全局筛选后剩余 {afterFilter.Count} 条数据");
+
+                    // 更新UI（切换到UI线程，使用异步方式避免阻塞）
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            // 保存所有数据（已应用全局筛选）- 复用List
+                            _allDataItems.Clear();
+                            _allDataItems.Capacity = Math.Max(_allDataItems.Capacity, afterFilter.Count);
+                            _allDataItems.AddRange(afterFilter);
+                            
+                            // 应用搜索过滤（如果有搜索条件）- 复用List
+                            List<Services.HaiLiDataItem> filteredData;
+                            if (!string.IsNullOrWhiteSpace(_currentSearchText))
+                            {
+                                filteredData = ApplySearchFilterToList(_allDataItems, _currentSearchText);
+                            }
+                            else
+                            {
+                                filteredData = _allDataItems;
+                            }
+                            
+                            // 更新所有板块面板（传入所有数据，让面板自己根据配置的股票代码过滤）
+                            Console.WriteLine($"[HaiLiDrvWindow] 开始更新 {_panels.Count} 个面板，传入 {_allDataItems.Count} 条数据");
+                            if (_allDataItems.Count > 0)
+                            {
+                                Console.WriteLine($"[HaiLiDrvWindow] 数据中的股票代码示例（前20个）: {string.Join(", ", _allDataItems.Take(20).Select(d => d.StockCode))}");
+                            }
+                            foreach (var panel in _panels)
+                            {
+                                panel.UpdateData(_allDataItems);
+                            }
+                            Console.WriteLine($"[HaiLiDrvWindow] 面板更新完成");
+                            
+                            // 判断盘中/盘后状态
+                            bool isTradingTime = _dataService.IsTradingTime();
+                            string marketStatus = isTradingTime ? "盘中" : "盘后";
+                            string dataSource = isTradingTime ? "实时数据" : "日线数据";
+                            string filterInfo = GetFilterInfo();
+                            int totalCount = _allDataItems.Count;
+                            int displayCount = filteredData.Count;
+                            string searchInfo = string.IsNullOrEmpty(_currentSearchText) ? "" : $" | 搜索: {displayCount}/{totalCount}";
+                            string panelInfo = $" | 面板: {_panels.Count}";
+                            
+                            if (totalCount == 0)
+                            {
+                                string emptyReason = "";
+                                if (isTradingTime)
+                                {
+                                    emptyReason = "（实时数据缓存为空，请检查MQ数据接收服务是否运行）";
+                                }
+                                else
+                                {
+                                    emptyReason = "（日线数据为空，请检查数据库连接和数据）";
+                                }
+                                StatusText.Text = $"[{marketStatus}] 未加载到数据 {emptyReason}";
+                                InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 状态: {marketStatus} | 数据源: {dataSource} | 请查看控制台日志获取详细信息";
+                                AppendLog($"[{DateTime.Now:HH:mm:ss}] 警告：未加载到数据，状态={marketStatus}，数据源={dataSource}");
+                            }
+                            else
+                            {
+                                StatusText.Text = $"[{marketStatus}] 已加载 {totalCount} 条数据 ({dataSource}){filterInfo}{searchInfo}{panelInfo}";
+                                InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 状态: {marketStatus} | 共 {displayCount} 条记录 | 数据源: {dataSource}{filterInfo}{searchInfo}{panelInfo}";
+                                AppendLog($"[{DateTime.Now:HH:mm:ss}] [{marketStatus}] 已加载 {displayCount} 条 ({dataSource})");
+                            }
+                        }
+                        finally
+                        {
+                            _isRefreshing = false;
+                        }
+                    }, System.Windows.Threading.DispatcherPriority.Background);
+                }
+                catch (Exception ex)
                 {
-                    StatusText.Text = $"刷新失败: {ex.Message}";
-                });
-            }
+                    Console.WriteLine($"[HaiLiDrvWindow] 刷新数据失败: {ex.Message}");
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        StatusText.Text = $"刷新失败: {ex.Message}";
+                        _isRefreshing = false;
+                    }, System.Windows.Threading.DispatcherPriority.Background);
+                }
+            });
         }
 
         /// <summary>
@@ -507,28 +610,30 @@ namespace MQReceiver.Views
             {
                 var filteredData = ApplySearchFilterToList(_allDataItems, _currentSearchText);
                 
-                // 更新所有面板
+                // 更新所有面板（传入所有数据，让面板自己根据配置的股票代码过滤）
                 foreach (var panel in _panels)
                 {
-                    panel.UpdateData(filteredData);
+                    panel.UpdateData(_allDataItems);
                 }
                 
                 // 更新状态栏
+                bool isTradingTime = _dataService.IsTradingTime();
+                string marketStatus = isTradingTime ? "盘中" : "盘后";
+                string dataSource = isTradingTime ? "实时数据" : "日线数据";
                 int totalCount = _allDataItems.Count;
                 int displayCount = filteredData.Count;
-                string dataSource = _dataService.IsTradingTime() ? "实时数据" : "日线数据";
                 string filterInfo = GetFilterInfo();
                 string panelInfo = $" | 面板: {_panels.Count}";
                 
                 if (!string.IsNullOrWhiteSpace(_currentSearchText))
                 {
-                    StatusText.Text = $"搜索: {displayCount}/{totalCount} 条 ({dataSource}){filterInfo}{panelInfo}";
-                    InfoText.Text = $"搜索: \"{_currentSearchText}\" | 显示 {displayCount}/{totalCount} 条记录 | 数据源: {dataSource}{filterInfo}{panelInfo}";
+                    StatusText.Text = $"[{marketStatus}] 搜索: {displayCount}/{totalCount} 条 ({dataSource}){filterInfo}{panelInfo}";
+                    InfoText.Text = $"搜索: \"{_currentSearchText}\" | 状态: {marketStatus} | 显示 {displayCount}/{totalCount} 条记录 | 数据源: {dataSource}{filterInfo}{panelInfo}";
                 }
                 else
                 {
-                    StatusText.Text = $"已加载 {totalCount} 条数据 ({dataSource}){filterInfo}{panelInfo}";
-                    InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 共 {displayCount} 条记录 | 数据源: {dataSource}{filterInfo}{panelInfo}";
+                    StatusText.Text = $"[{marketStatus}] 已加载 {totalCount} 条数据 ({dataSource}){filterInfo}{panelInfo}";
+                    InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 状态: {marketStatus} | 共 {displayCount} 条记录 | 数据源: {dataSource}{filterInfo}{panelInfo}";
                 }
             }
         }
@@ -593,11 +698,13 @@ namespace MQReceiver.Views
             // 恢复状态栏
             if (_allDataItems.Count > 0)
             {
-                string dataSource = _dataService.IsTradingTime() ? "实时数据" : "日线数据";
+                bool isTradingTime = _dataService.IsTradingTime();
+                string marketStatus = isTradingTime ? "盘中" : "盘后";
+                string dataSource = isTradingTime ? "实时数据" : "日线数据";
                 string filterInfo = GetFilterInfo();
                 string panelInfo = $" | 面板: {_panels.Count}";
-                StatusText.Text = $"已加载 {_allDataItems.Count} 条数据 ({dataSource}){filterInfo}{panelInfo}";
-                InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 共 {_allDataItems.Count} 条记录 | 数据源: {dataSource}{filterInfo}{panelInfo}";
+                StatusText.Text = $"[{marketStatus}] 已加载 {_allDataItems.Count} 条数据 ({dataSource}){filterInfo}{panelInfo}";
+                InfoText.Text = $"最后更新: {DateTime.Now:HH:mm:ss} | 状态: {marketStatus} | 共 {_allDataItems.Count} 条记录 | 数据源: {dataSource}{filterInfo}{panelInfo}";
             }
         }
 
@@ -608,7 +715,11 @@ namespace MQReceiver.Views
         {
             try
             {
-                var configDialog = new HaiLiDrvStockCodeConfigDialog(_configProvider);
+                // 传入当前数据列表，供“从数据列表选择”使用
+                var availableList = _allDataItems != null && _allDataItems.Count > 0
+                    ? (IList<Services.HaiLiDataItem>)_allDataItems
+                    : null;
+                var configDialog = new HaiLiDrvStockCodeConfigDialog(_configProvider, availableList);
                 configDialog.Owner = this;
                 
                 if (configDialog.ShowDialog() == true)

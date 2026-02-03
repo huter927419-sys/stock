@@ -9,6 +9,7 @@ namespace MQReceiver.Services
     /// <summary>
     /// K线图窗口管理器（单例模式）
     /// 确保同时只有一个K线图窗口打开
+    /// 优化：使用独立的图表数据服务，预加载数据提升性能
     /// </summary>
     public class ChartWindowManager
     {
@@ -17,6 +18,7 @@ namespace MQReceiver.Services
         
         private WebChartWindow _currentChartWindow;
         private RealTimeDataCache _realTimeCache;
+        private ChartDataService _chartDataService; // 独立的图表数据服务
 
         private ChartWindowManager()
         {
@@ -49,10 +51,12 @@ namespace MQReceiver.Services
         public void SetRealTimeCache(RealTimeDataCache cache)
         {
             _realTimeCache = cache;
+            // 创建独立的图表数据服务
+            _chartDataService = new ChartDataService(cache);
         }
 
         /// <summary>
-        /// 打开股票K线图窗口（单例模式：新窗口会关闭旧窗口）
+        /// 打开股票K线图窗口（单窗口模式：如果窗口已打开，则更新内容；否则创建新窗口）
         /// </summary>
         /// <param name="stockCode">股票代码</param>
         /// <param name="targetScreen">目标屏幕（null表示使用保存的位置，或主屏）</param>
@@ -66,29 +70,60 @@ namespace MQReceiver.Services
                     return;
                 }
 
-                // 如果已有图表窗口打开，先关闭它
-                if (_currentChartWindow != null)
+                // 如果已有图表窗口打开，更新其内容而不是关闭重建
+                if (_currentChartWindow != null && _currentChartWindow.IsLoaded)
                 {
                     try
                     {
-                        if (_currentChartWindow.IsLoaded)
+                        // 预加载数据（后台执行，不阻塞）
+                        if (_chartDataService != null)
                         {
-                            _currentChartWindow.Close();
+                            _ = _chartDataService.LoadChartDataAsync(stockCode);
                         }
+                        
+                        // 更新窗口显示的股票代码（复用窗口，保持位置和大小）
+                        // 注意：UpdateStockCodeAsync 是异步方法，但不等待完成，让它在后台执行
+                        _ = _currentChartWindow.UpdateStockCodeAsync(stockCode);
+                        
+                        // 如果窗口被最小化，恢复显示
+                        if (_currentChartWindow.WindowState == WindowState.Minimized)
+                        {
+                            _currentChartWindow.WindowState = WindowState.Normal;
+                        }
+                        
+                        // 激活窗口并置于前台
+                        _currentChartWindow.Activate();
+                        _currentChartWindow.Focus();
+                        
+                        Console.WriteLine($"[ChartWindowManager] 已更新图表窗口显示股票 {stockCode}");
+                        return;
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[ChartWindowManager] 关闭旧窗口时出错: {ex.Message}");
-                    }
-                    finally
-                    {
+                        Console.WriteLine($"[ChartWindowManager] 更新窗口内容时出错: {ex.Message}，将创建新窗口");
+                        // 如果更新失败，关闭旧窗口并创建新窗口
+                        try
+                        {
+                            _currentChartWindow.Close();
+                        }
+                        catch { }
                         _currentChartWindow = null;
                     }
+                }
+
+                // 预加载数据（后台执行，不阻塞窗口创建）
+                // 注意：窗口会在 Window_Loaded 时自动加载数据，这里预加载可以提升性能
+                if (_chartDataService != null)
+                {
+                    _ = _chartDataService.LoadChartDataAsync(stockCode);
                 }
 
                 // 创建新的图表窗口（如果缓存未设置，WebChartWindow会使用默认方式）
                 var chartWindow = new WebChartWindow(stockCode, _realTimeCache);
                 _currentChartWindow = chartWindow;
+                
+                // 如果数据服务可用，设置到窗口（可选优化）
+                // chartWindow.SetChartDataService(_chartDataService);
 
                 // 如果指定了目标屏幕，将窗口移动到该屏幕
                 if (targetScreen != null)
